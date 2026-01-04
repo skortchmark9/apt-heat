@@ -38,3 +38,6 @@ class HeaterReading(Base):
 
     # Faults
     fault_code = Column(Integer)
+
+    # Weather
+    outdoor_temp_f = Column(Integer)

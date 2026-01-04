@@ -7,6 +7,8 @@ Serves a simple dashboard for visualization.
 
 import os
 import asyncio
+import urllib.request
+import json
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
@@ -38,6 +40,22 @@ POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "60"))
 heater = None
 polling_task = None
 
+# Location for weather (10027 = NYC/Morningside Heights)
+WEATHER_LAT = float(os.getenv("WEATHER_LAT", "40.81"))
+WEATHER_LON = float(os.getenv("WEATHER_LON", "-73.95"))
+
+
+def get_outdoor_temp() -> int | None:
+    """Fetch current outdoor temperature from Open-Meteo API."""
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={WEATHER_LAT}&longitude={WEATHER_LON}&current=temperature_2m&temperature_unit=fahrenheit"
+        with urllib.request.urlopen(url, timeout=10) as response:
+            data = json.loads(response.read().decode())
+            return int(round(data["current"]["temperature_2m"]))
+    except Exception as e:
+        print(f"Weather fetch error: {e}")
+        return None
+
 
 def get_db():
     db = SessionLocal()
@@ -57,6 +75,7 @@ async def poll_heater():
                 heater = Heater(mode="cloud")
 
             status = heater.summary()
+            outdoor_temp = get_outdoor_temp()
 
             # Store reading
             db = SessionLocal()
@@ -64,6 +83,7 @@ async def poll_heater():
                 reading = HeaterReading(
                     timestamp=datetime.utcnow(),
                     power=status.get("power"),
+                    outdoor_temp_f=outdoor_temp,
                     current_temp_f=status.get("current_temp_f"),
                     target_temp_f=status.get("target_temp_f"),
                     heat_mode=status.get("heat_mode"),
@@ -80,8 +100,8 @@ async def poll_heater():
                 )
                 db.add(reading)
                 db.commit()
-                print(f"[{datetime.now()}] Logged: {status.get('current_temp_f')}°F, "
-                      f"power={status.get('power')}, active={status.get('active_heat_level')}")
+                print(f"[{datetime.now()}] Logged: {status.get('current_temp_f')}°F inside, "
+                      f"{outdoor_temp}°F outside, power={status.get('power')}")
             finally:
                 db.close()
 
@@ -169,6 +189,10 @@ async def dashboard():
             <div class="stat-value" id="energy">--</div>
             <div class="stat-label">Energy (kWh)</div>
         </div>
+        <div class="stat">
+            <div class="stat-value" id="outdoor-temp">--</div>
+            <div class="stat-label">Outdoor Temp</div>
+        </div>
     </div>
 
     <div class="controls">
@@ -208,11 +232,13 @@ async function loadData() {
     document.getElementById('heat-level').textContent = latest.active_heat_level || '--';
     document.getElementById('watts').textContent = latest.power_watts || '0';
     document.getElementById('energy').textContent = latest.energy_kwh || '--';
+    document.getElementById('outdoor-temp').textContent = latest.outdoor_temp_f ? `${latest.outdoor_temp_f}°F` : '--';
 
     // Prepare chart data
     const labels = data.map(r => new Date(r.timestamp));
     const currentTemps = data.map(r => r.current_temp_f);
     const targetTemps = data.map(r => r.target_temp_f);
+    const outdoorTemps = data.map(r => r.outdoor_temp_f);
     const watts = data.map(r => r.power_watts || 0);
 
     // Temperature chart
@@ -222,8 +248,9 @@ async function loadData() {
         data: {
             labels: labels,
             datasets: [
-                { label: 'Current Temp (°F)', data: currentTemps, borderColor: '#e94560', backgroundColor: 'rgba(233,69,96,0.1)', fill: true, tension: 0.3 },
-                { label: 'Target Temp (°F)', data: targetTemps, borderColor: '#0f3460', borderDash: [5,5], fill: false, tension: 0.3 }
+                { label: 'Indoor (°F)', data: currentTemps, borderColor: '#e94560', backgroundColor: 'rgba(233,69,96,0.1)', fill: true, tension: 0.3 },
+                { label: 'Target (°F)', data: targetTemps, borderColor: '#0f3460', borderDash: [5,5], fill: false, tension: 0.3 },
+                { label: 'Outdoor (°F)', data: outdoorTemps, borderColor: '#4fc3f7', backgroundColor: 'rgba(79,195,247,0.1)', fill: false, tension: 0.3 }
             ]
         },
         options: {
@@ -315,6 +342,7 @@ async def get_readings(
             "timer_remaining_sec": r.timer_remaining_sec,
             "energy_kwh": r.energy_kwh,
             "fault_code": r.fault_code,
+            "outdoor_temp_f": r.outdoor_temp_f,
         }
         for r in readings
     ]
