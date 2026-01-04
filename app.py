@@ -179,6 +179,7 @@ async def dashboard():
             <option value="168">Last 7 days</option>
         </select>
         <button onclick="loadData()">Refresh</button>
+        <button id="oscillation-btn" onclick="toggleOscillation()">Oscillation: --</button>
     </div>
 
     <div class="chart-container">
@@ -256,9 +257,31 @@ async function loadData() {
     });
 }
 
+async function toggleOscillation() {
+    const btn = document.getElementById('oscillation-btn');
+    btn.disabled = true;
+    btn.textContent = 'Oscillation: ...';
+    try {
+        const response = await fetch('/api/oscillation/toggle', { method: 'POST' });
+        const result = await response.json();
+        btn.textContent = `Oscillation: ${result.oscillation ? 'ON' : 'OFF'}`;
+    } catch (e) {
+        btn.textContent = 'Oscillation: ERR';
+    }
+    btn.disabled = false;
+}
+
+async function updateOscillationBtn() {
+    const response = await fetch('/api/status');
+    const status = await response.json();
+    document.getElementById('oscillation-btn').textContent = `Oscillation: ${status.oscillation ? 'ON' : 'OFF'}`;
+}
+
 // Auto-refresh every 60s
 loadData();
+updateOscillationBtn();
 setInterval(loadData, 60000);
+setInterval(updateOscillationBtn, 60000);
 </script>
 </body>
 </html>"""
@@ -304,3 +327,14 @@ async def get_status():
     if heater is None:
         heater = Heater(mode="cloud")
     return heater.summary()
+
+
+@app.post("/api/oscillation/toggle")
+async def toggle_oscillation():
+    """Toggle oscillation on/off."""
+    global heater
+    if heater is None:
+        heater = Heater(mode="cloud")
+    current = heater.get_oscillation()
+    heater.set_oscillation(not current)
+    return {"oscillation": not current}
