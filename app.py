@@ -327,7 +327,7 @@ async def get_readings(
 
     return [
         {
-            "timestamp": r.timestamp.isoformat(),
+            "timestamp": r.timestamp.isoformat() + "Z",
             "power": r.power,
             "current_temp_f": r.current_temp_f,
             "target_temp_f": r.target_temp_f,
