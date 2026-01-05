@@ -332,8 +332,9 @@ async def dashboard():
         .curve-stat-value { font-size: 1.25rem; font-weight: 700; color: var(--purple); }
         .curve-stat-label { font-size: 0.625rem; color: var(--gray-500); margin-top: 0.25rem; }
 
-        .sleep-start-btn { width: 100%; padding: 1rem; border-radius: 12px; border: none; background: var(--purple); color: white; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 1rem; }
+        .sleep-start-btn { width: 100%; padding: 1rem; border-radius: 12px; border: none; background: var(--purple); color: white; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 1rem; transition: background 0.2s ease; }
         .sleep-start-btn:active { transform: scale(0.98); }
+        .sleep-start-btn.cancel-mode { background: var(--red); }
 
         .stats-row { display: flex; gap: 0.75rem; padding: 1.5rem; }
         .stat-card { flex: 1; background: var(--gray-50); border-radius: 12px; padding: 1rem; text-align: center; }
@@ -579,6 +580,8 @@ async function loadStatus() {
         const sleepRes = await fetch('/api/sleep');
         const sleepStatus = sleepRes.ok ? await sleepRes.json() : {};
         document.getElementById('btn-sleep').classList.toggle('active', sleepStatus.active);
+        window.sleepModeActive = sleepStatus.active;
+        window.sleepProgress = sleepStatus.progress || 0;
         if (sleepStatus.active) {
             const wake = new Date(sleepStatus.wake_time);
             const wakeStr = wake.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
@@ -586,6 +589,9 @@ async function loadStatus() {
             title.textContent = 'Sleep mode active';
             subtitle.textContent = `Target: ${sleepStatus.current_target}°F · Wake: ${wakeStr}`;
             card.classList.remove('heating', 'off');
+            card.style.cursor = 'pointer';
+        } else {
+            card.style.cursor = 'default';
         }
 
         // Mock savings (TODO: calculate from actual data)
@@ -709,6 +715,29 @@ carousel.addEventListener('scroll', () => {
     dots.forEach((dot, i) => dot.classList.toggle('active', i === activeIndex));
 });
 
+// Click status card to view sleep progress
+document.getElementById('status-card').onclick = async () => {
+    if (!window.sleepModeActive) return;
+
+    // Fetch latest sleep data
+    const res = await fetch('/api/sleep');
+    const data = res.ok ? await res.json() : {};
+    if (!data.active) return;
+
+    // Store curve from server and progress for drawing
+    window.serverCurve = data.curve;
+    window.sleepProgress = data.progress;
+    window.viewingProgress = true;
+
+    sleepModal.classList.add('open');
+    initCurve();
+    updateTimeLabels();
+
+    // Update button to show cancel option
+    document.getElementById('sleep-start').textContent = 'Cancel Sleep Mode';
+    document.getElementById('sleep-start').classList.add('cancel-mode');
+};
+
 // ===== SLEEP MODE =====
 const sleepModal = document.getElementById('sleep-modal');
 const wakeWheel = document.getElementById('wake-wheel');
@@ -815,8 +844,15 @@ document.getElementById('btn-sleep').onclick = () => {
         }
     }, 100);
 };
-document.getElementById('sleep-close').onclick = () => sleepModal.classList.remove('open');
-sleepModal.onclick = (e) => { if (e.target === sleepModal) sleepModal.classList.remove('open'); };
+function closeSleepModal() {
+    sleepModal.classList.remove('open');
+    window.viewingProgress = false;
+    window.serverCurve = null;
+    document.getElementById('sleep-start').textContent = 'Start Sleep Mode';
+    document.getElementById('sleep-start').classList.remove('cancel-mode');
+}
+document.getElementById('sleep-close').onclick = closeSleepModal;
+sleepModal.onclick = (e) => { if (e.target === sleepModal) closeSleepModal(); };
 
 // Curve drawing
 function initCurve() {
@@ -828,6 +864,17 @@ function initCurve() {
     curveCtx.scale(2, 2);
 
     const w = rect.width, h = rect.height;
+
+    // If viewing active sleep mode, use server curve
+    if (window.viewingProgress && window.serverCurve) {
+        const tempToY = (temp) => ((75 - temp) / 10) * h;
+        curvePoints = window.serverCurve.map(p => ({
+            x: p.progress * w,
+            y: tempToY(p.temp)
+        }));
+        drawCurve();
+        return;
+    }
 
     // Try to load saved curve from localStorage
     const saved = localStorage.getItem('sleepCurve');
@@ -912,18 +959,63 @@ function drawCurve() {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Draw control points (all points are draggable)
-    curvePoints.forEach((p, i) => {
+    // Draw control points (only if not viewing progress)
+    if (!window.viewingProgress) {
+        curvePoints.forEach((p, i) => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+            // Endpoints get different color
+            ctx.fillStyle = (i === 0 || i === curvePoints.length - 1) ? '#10B981' : '#8B5CF6';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = 'white';
+            ctx.fill();
+        });
+    }
+
+    // Draw progress indicator if viewing active sleep
+    if (window.viewingProgress && window.sleepProgress !== undefined) {
+        const progress = window.sleepProgress;
+        const progressX = progress * w;
+
+        // Find Y position by interpolating between curve points
+        let progressY = curvePoints[0].y;
+        for (let i = 0; i < curvePoints.length - 1; i++) {
+            const p1 = curvePoints[i], p2 = curvePoints[i + 1];
+            if (progressX >= p1.x && progressX <= p2.x) {
+                const t = (progressX - p1.x) / (p2.x - p1.x);
+                progressY = p1.y + (p2.y - p1.y) * t;
+                break;
+            }
+        }
+
+        // Draw vertical line at progress
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-        // Endpoints get different color
-        ctx.fillStyle = (i === 0 || i === curvePoints.length - 1) ? '#10B981' : '#8B5CF6';
+        ctx.moveTo(progressX, 0);
+        ctx.lineTo(progressX, h);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Draw "you are here" dot
+        ctx.beginPath();
+        ctx.arc(progressX, progressY, 12, 0, Math.PI * 2);
+        ctx.fillStyle = '#F59E0B';
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.arc(progressX, progressY, 6, 0, Math.PI * 2);
         ctx.fillStyle = 'white';
         ctx.fill();
-    });
+
+        // Draw "NOW" label
+        ctx.fillStyle = '#F59E0B';
+        ctx.font = 'bold 10px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('NOW', progressX, progressY - 20);
+    }
 
     updateCurveStats();
 }
@@ -977,8 +1069,21 @@ curveCanvas.addEventListener('pointermove', (e) => {
 curveCanvas.addEventListener('pointerup', () => { draggingPoint = null; saveSleepSettings(); });
 curveCanvas.addEventListener('pointercancel', () => { draggingPoint = null; });
 
-// Start sleep mode
+// Start/cancel sleep mode
 document.getElementById('sleep-start').onclick = async () => {
+    // If viewing progress, this is a cancel button
+    if (window.viewingProgress) {
+        try {
+            await fetch('/api/sleep/cancel', { method: 'POST' });
+            closeSleepModal();
+            document.getElementById('btn-sleep').classList.remove('active');
+            loadStatus();
+        } catch (e) {
+            console.error('Failed to cancel sleep mode:', e);
+        }
+        return;
+    }
+
     const rect = curveCanvas.getBoundingClientRect();
     const yToTemp = (y) => Math.round(75 - (y / rect.height) * 10);
     const curve = curvePoints.map((p, i) => ({
@@ -993,7 +1098,7 @@ document.getElementById('sleep-start').onclick = async () => {
             body: JSON.stringify({ wakeTime: selectedWakeTime, curve })
         });
         if (res.ok) {
-            sleepModal.classList.remove('open');
+            closeSleepModal();
             document.getElementById('btn-sleep').classList.add('active');
             // Update status to show sleep mode
             document.getElementById('status-icon').textContent = '🌙';
@@ -1145,8 +1250,19 @@ async def get_sleep_status():
     if target is None:
         return {"active": False}
 
+    # Calculate progress
+    now = datetime.now()
+    start = datetime.fromisoformat(schedule['start_time'])
+    wake = datetime.fromisoformat(schedule['wake_time'])
+    total_duration = (wake - start).total_seconds()
+    elapsed = (now - start).total_seconds()
+    progress = min(1.0, max(0.0, elapsed / total_duration))
+
     return {
         "active": True,
         "wake_time": schedule["wake_time"],
-        "current_target": target
+        "start_time": schedule["start_time"],
+        "current_target": target,
+        "progress": progress,
+        "curve": schedule["curve"]
     }
