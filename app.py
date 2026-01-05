@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from models import Base, HeaterReading, SleepSchedule
 from heater import Heater
+from rates import calculate_savings_from_readings, get_tou_period, get_rate_for_period
 
 load_dotenv()
 
@@ -390,9 +391,9 @@ async def dashboard():
                     </div>
                 </div>
                 <div class="rate-comparison">
-                    <div class="rate-item"><div class="rate-label">Grid rate</div><div class="rate-value crossed">$0.35</div></div>
+                    <div class="rate-item"><div class="rate-label">Grid rate</div><div class="rate-value crossed" id="grid-rate">$0.35</div></div>
                     <div class="rate-arrow">→</div>
-                    <div class="rate-item"><div class="rate-label">You pay</div><div class="rate-value">$0.08</div></div>
+                    <div class="rate-item"><div class="rate-label">You pay</div><div class="rate-value" id="your-rate">$0.08</div></div>
                 </div>
             </div>
             <div class="status-card schedule-card">
@@ -483,7 +484,7 @@ async def dashboard():
     <div class="stats-row">
         <div class="stat-card"><div class="stat-value" id="stat-month">$--</div><div class="stat-label">This month</div></div>
         <div class="stat-card"><div class="stat-value" id="stat-energy">--</div><div class="stat-label">kWh today</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-events">--</div><div class="stat-label">Peak events</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-events">--</div><div class="stat-label">Peak kWh</div></div>
     </div>
 
     <div class="nav-spacer"></div>
@@ -615,12 +616,26 @@ async function loadStatus() {
             card.style.cursor = 'default';
         }
 
-        // Mock savings (TODO: calculate from actual data)
-        document.getElementById('savings-today').textContent = '$2.90';
-        document.getElementById('streak-count').textContent = '5';
-        document.getElementById('stat-month').textContent = '$47';
-        document.getElementById('stat-energy').textContent = s.energy_kwh || '--';
-        document.getElementById('stat-events').textContent = '23';
+        // Load real savings data
+        const savingsRes = await fetch('/api/savings?hours=24');
+        const savings = savingsRes.ok ? await savingsRes.json() : {};
+        document.getElementById('savings-today').textContent = '$' + (savings.savings || 0).toFixed(2);
+        document.getElementById('stat-energy').textContent = (savings.total_kwh || 0).toFixed(1);
+
+        // Update rate display
+        const gridRate = savings.current_rate || 0.35;
+        const offpeakRate = 0.0249;  // Off-peak rate (battery cost)
+        document.getElementById('grid-rate').textContent = '$' + gridRate.toFixed(2);
+        document.getElementById('your-rate').textContent = '$' + offpeakRate.toFixed(2);
+
+        // Monthly savings (30 days)
+        const monthRes = await fetch('/api/savings?hours=720');
+        const monthSavings = monthRes.ok ? await monthRes.json() : {};
+        document.getElementById('stat-month').textContent = '$' + (monthSavings.savings || 0).toFixed(0);
+
+        // Peak kWh used today
+        document.getElementById('stat-events').textContent = (savings.peak_kwh || 0).toFixed(1);
+        document.getElementById('streak-count').textContent = '--';
 
     } catch (e) {
         console.error('Status load error:', e);
@@ -1313,3 +1328,43 @@ async def get_sleep_status():
         "progress": progress,
         "curve": schedule["curve"]
     }
+
+
+@app.get("/api/savings")
+async def get_savings(
+    hours: int = Query(default=24, ge=1, le=720),
+    db: Session = Depends(get_db)
+):
+    """
+    Calculate peak shaving savings for the given time period.
+
+    Returns savings breakdown based on ConEd TOU rates.
+    """
+    since = datetime.utcnow() - timedelta(hours=hours)
+    readings = db.query(HeaterReading).filter(
+        HeaterReading.timestamp >= since
+    ).order_by(HeaterReading.timestamp).all()
+
+    if not readings:
+        return {
+            "hours": hours,
+            "total_kwh": 0,
+            "peak_kwh": 0,
+            "offpeak_kwh": 0,
+            "savings": 0,
+            "would_have_cost": 0,
+            "actual_cost": 0,
+            "current_period": get_tou_period(datetime.now()),
+            "current_rate": get_rate_for_period(datetime.now())[1]
+        }
+
+    # Calculate with poll interval (get from env or default 5s)
+    poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "5"))
+    result = calculate_savings_from_readings(readings, poll_interval)
+
+    # Add current rate info
+    result["hours"] = hours
+    result["current_period"] = get_tou_period(datetime.now())
+    result["current_rate"] = get_rate_for_period(datetime.now())[1]
+
+    return result
