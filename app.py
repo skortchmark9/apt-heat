@@ -562,7 +562,15 @@ const sleepModal = document.getElementById('sleep-modal');
 const wakeWheel = document.getElementById('wake-wheel');
 const curveCanvas = document.getElementById('curve-canvas');
 let curveCtx, curvePoints = [];
-let selectedWakeTime = '7:00 AM';
+let selectedWakeTime = localStorage.getItem('sleepWakeTime') || '7:00 AM';
+
+function saveSleepSettings() {
+    const rect = curveCanvas.getBoundingClientRect();
+    // Save as percentages so it works across screen sizes
+    const normalized = curvePoints.map(p => ({ x: p.x / rect.width, y: p.y / rect.height }));
+    localStorage.setItem('sleepCurve', JSON.stringify(normalized));
+    localStorage.setItem('sleepWakeTime', selectedWakeTime);
+}
 
 // Generate wake times
 const wakeTimes = [];
@@ -590,7 +598,11 @@ wakeWheel.addEventListener('scroll', () => {
         if (dist < closestDist) { closestDist = dist; closest = item; }
     });
     items.forEach(i => i.classList.remove('active'));
-    if (closest) { closest.classList.add('active'); selectedWakeTime = closest.dataset.time; }
+    if (closest) {
+        closest.classList.add('active');
+        selectedWakeTime = closest.dataset.time;
+        saveSleepSettings();
+    }
 });
 
 // Open/close modal
@@ -598,8 +610,14 @@ document.getElementById('btn-sleep').onclick = () => {
     sleepModal.classList.add('open');
     initCurve();
     setTimeout(() => {
-        const active = wakeWheel.querySelector('.time-item.active');
-        if (active) active.scrollIntoView({ block: 'center', behavior: 'instant' });
+        // Scroll to saved wake time
+        const items = wakeWheel.querySelectorAll('.time-item');
+        items.forEach(i => i.classList.remove('active'));
+        const target = Array.from(items).find(i => i.dataset.time === selectedWakeTime);
+        if (target) {
+            target.classList.add('active');
+            target.scrollIntoView({ block: 'center', behavior: 'instant' });
+        }
     }, 100);
 };
 document.getElementById('sleep-close').onclick = () => sleepModal.classList.remove('open');
@@ -614,17 +632,31 @@ function initCurve() {
     curveCtx = canvas.getContext('2d');
     curveCtx.scale(2, 2);
 
-    // Default curve: bathtub shape - drop down, stay low, rise up
     const w = rect.width, h = rect.height;
-    curvePoints = [
-        { x: 0, y: h * 0.25 },           // Start: ~72°
-        { x: w * 0.12, y: h * 0.5 },     // Quick drop
-        { x: w * 0.25, y: h * 0.75 },    // Bottom left
-        { x: w * 0.5, y: h * 0.75 },     // Bottom middle (flat)
-        { x: w * 0.75, y: h * 0.75 },    // Bottom right
-        { x: w * 0.88, y: h * 0.5 },     // Quick rise
-        { x: w, y: h * 0.25 }            // Wake: ~72°
-    ];
+
+    // Try to load saved curve from localStorage
+    const saved = localStorage.getItem('sleepCurve');
+    if (saved) {
+        try {
+            const normalized = JSON.parse(saved);
+            curvePoints = normalized.map(p => ({ x: p.x * w, y: p.y * h }));
+        } catch (e) {
+            curvePoints = null;
+        }
+    }
+
+    // Default curve: bathtub shape - drop down, stay low, rise up
+    if (!curvePoints || curvePoints.length !== 7) {
+        curvePoints = [
+            { x: 0, y: h * 0.25 },           // Start: ~72°
+            { x: w * 0.12, y: h * 0.5 },     // Quick drop
+            { x: w * 0.25, y: h * 0.75 },    // Bottom left
+            { x: w * 0.5, y: h * 0.75 },     // Bottom middle (flat)
+            { x: w * 0.75, y: h * 0.75 },    // Bottom right
+            { x: w * 0.88, y: h * 0.5 },     // Quick rise
+            { x: w, y: h * 0.25 }            // Wake: ~72°
+        ];
+    }
     drawCurve();
 }
 
@@ -741,7 +773,7 @@ curveCanvas.addEventListener('pointermove', (e) => {
     drawCurve();
 });
 
-curveCanvas.addEventListener('pointerup', () => { draggingPoint = null; });
+curveCanvas.addEventListener('pointerup', () => { draggingPoint = null; saveSleepSettings(); });
 curveCanvas.addEventListener('pointercancel', () => { draggingPoint = null; });
 
 // Start sleep mode
