@@ -1,10 +1,21 @@
 """Database models for heater monitoring."""
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
+
+
+class SleepSchedule(Base):
+    """Active sleep schedule (only one row, id=1)."""
+
+    __tablename__ = "sleep_schedule"
+
+    id = Column(Integer, primary_key=True, default=1)
+    start_time = Column(DateTime)
+    wake_time = Column(DateTime)
+    curve_json = Column(Text)  # JSON array of {progress, temp}
 
 
 class HeaterReading(Base):

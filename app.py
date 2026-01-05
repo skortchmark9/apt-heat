@@ -19,73 +19,10 @@ from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
 from dotenv import load_dotenv
 
-from models import Base, HeaterReading
+from models import Base, HeaterReading, SleepSchedule
 from heater import Heater
 
 load_dotenv()
-
-# Sleep schedule file
-SLEEP_SCHEDULE_FILE = "/tmp/sleep_schedule.json"
-
-
-def load_sleep_schedule():
-    """Load active sleep schedule from disk."""
-    try:
-        with open(SLEEP_SCHEDULE_FILE, 'r') as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
-
-
-def save_sleep_schedule(schedule):
-    """Save sleep schedule to disk."""
-    with open(SLEEP_SCHEDULE_FILE, 'w') as f:
-        json.dump(schedule, f)
-
-
-def clear_sleep_schedule():
-    """Clear the sleep schedule."""
-    try:
-        os.remove(SLEEP_SCHEDULE_FILE)
-    except FileNotFoundError:
-        pass
-
-
-def get_sleep_target_temp():
-    """Get target temp based on current sleep schedule, or None if not in sleep mode."""
-    schedule = load_sleep_schedule()
-    if not schedule:
-        return None
-
-    now = datetime.now()
-    start = datetime.fromisoformat(schedule['start_time'])
-    wake = datetime.fromisoformat(schedule['wake_time'])
-
-    # Check if schedule is still valid
-    if now < start or now > wake:
-        clear_sleep_schedule()
-        return None
-
-    # Calculate progress (0.0 to 1.0)
-    total_duration = (wake - start).total_seconds()
-    elapsed = (now - start).total_seconds()
-    progress = elapsed / total_duration
-
-    # Interpolate temperature from curve points
-    points = schedule['curve']  # List of {progress: 0-1, temp: int}
-
-    # Find the two points we're between
-    for i in range(len(points) - 1):
-        if points[i]['progress'] <= progress <= points[i + 1]['progress']:
-            # Linear interpolation between these two points
-            p1, p2 = points[i], points[i + 1]
-            segment_progress = (progress - p1['progress']) / (p2['progress'] - p1['progress'])
-            temp = p1['temp'] + (p2['temp'] - p1['temp']) * segment_progress
-            return int(round(temp))
-
-    # Fallback to last point
-    return points[-1]['temp']
-
 
 # Database setup
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./heater.db")
@@ -126,6 +63,90 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def load_sleep_schedule():
+    """Load active sleep schedule from database."""
+    db = SessionLocal()
+    try:
+        schedule = db.query(SleepSchedule).filter(SleepSchedule.id == 1).first()
+        if not schedule or not schedule.start_time:
+            return None
+        return {
+            "start_time": schedule.start_time.isoformat(),
+            "wake_time": schedule.wake_time.isoformat(),
+            "curve": json.loads(schedule.curve_json) if schedule.curve_json else []
+        }
+    finally:
+        db.close()
+
+
+def save_sleep_schedule(schedule):
+    """Save sleep schedule to database."""
+    db = SessionLocal()
+    try:
+        existing = db.query(SleepSchedule).filter(SleepSchedule.id == 1).first()
+        if existing:
+            existing.start_time = datetime.fromisoformat(schedule["start_time"])
+            existing.wake_time = datetime.fromisoformat(schedule["wake_time"])
+            existing.curve_json = json.dumps(schedule["curve"])
+        else:
+            new_schedule = SleepSchedule(
+                id=1,
+                start_time=datetime.fromisoformat(schedule["start_time"]),
+                wake_time=datetime.fromisoformat(schedule["wake_time"]),
+                curve_json=json.dumps(schedule["curve"])
+            )
+            db.add(new_schedule)
+        db.commit()
+    finally:
+        db.close()
+
+
+def clear_sleep_schedule():
+    """Clear the sleep schedule from database."""
+    db = SessionLocal()
+    try:
+        db.query(SleepSchedule).filter(SleepSchedule.id == 1).delete()
+        db.commit()
+    finally:
+        db.close()
+
+
+def get_sleep_target_temp():
+    """Get target temp based on current sleep schedule, or None if not in sleep mode."""
+    schedule = load_sleep_schedule()
+    if not schedule:
+        return None
+
+    now = datetime.now()
+    start = datetime.fromisoformat(schedule['start_time'])
+    wake = datetime.fromisoformat(schedule['wake_time'])
+
+    # Check if schedule is still valid
+    if now < start or now > wake:
+        clear_sleep_schedule()
+        return None
+
+    # Calculate progress (0.0 to 1.0)
+    total_duration = (wake - start).total_seconds()
+    elapsed = (now - start).total_seconds()
+    progress = elapsed / total_duration
+
+    # Interpolate temperature from curve points
+    points = schedule['curve']  # List of {progress: 0-1, temp: int}
+
+    # Find the two points we're between
+    for i in range(len(points) - 1):
+        if points[i]['progress'] <= progress <= points[i + 1]['progress']:
+            # Linear interpolation between these two points
+            p1, p2 = points[i], points[i + 1]
+            segment_progress = (progress - p1['progress']) / (p2['progress'] - p1['progress'])
+            temp = p1['temp'] + (p2['temp'] - p1['temp']) * segment_progress
+            return int(round(temp))
+
+    # Fallback to last point
+    return points[-1]['temp']
 
 
 async def poll_heater():
