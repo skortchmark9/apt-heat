@@ -897,22 +897,27 @@ function initCurve() {
         return;
     }
 
+    // Map temp to Y: 75° = top (y=0), 65° = bottom (y=h)
+    const tempToY = (temp) => ((75 - temp) / 10) * h;
+    const startY = tempToY(currentTarget);
+
     // Try to load saved curve from localStorage
     const saved = localStorage.getItem('sleepCurve');
     if (saved) {
         try {
             const normalized = JSON.parse(saved);
             curvePoints = normalized.map(p => ({ x: p.x * w, y: p.y * h }));
+            // Always update start/end to current setpoint
+            if (curvePoints.length >= 2) {
+                curvePoints[0].y = startY;
+                curvePoints[curvePoints.length - 1].y = startY;
+            }
         } catch (e) {
             curvePoints = null;
         }
     }
 
     // Default curve: bathtub shape - drop down, stay low, rise up
-    // Map temp to Y: 75° = top (y=0), 65° = bottom (y=h)
-    const tempToY = (temp) => ((75 - temp) / 10) * h;
-    const startY = tempToY(currentTarget);
-
     if (!curvePoints || curvePoints.length !== 7) {
         curvePoints = [
             { x: 0, y: startY },              // Start: current target
