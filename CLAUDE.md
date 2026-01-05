@@ -30,8 +30,26 @@ Railway CLI is installed locally in `tools/`. Use it like:
 
 You'll need to run `railway login` first if not authenticated.
 
+## Timezone Handling
+
+**IMPORTANT:** Railway servers run in UTC, but the user is in NYC (America/New_York).
+
+- Always use `LOCAL_TZ = ZoneInfo("America/New_York")` for user-facing times
+- Sleep schedules, wake times, and any time the user sees/sets should be in local time
+- Use `datetime.now(LOCAL_TZ)` instead of `datetime.now()` for local time comparisons
+- Store times with timezone info: `now.isoformat()` will include the offset
+- Database timestamps for readings can stay UTC (they're internal)
+
+```python
+from zoneinfo import ZoneInfo
+LOCAL_TZ = ZoneInfo("America/New_York")
+now = datetime.now(LOCAL_TZ)  # Correct
+now = datetime.now()  # WRONG - returns UTC on Railway
+```
+
 ## Key Files
 
 - `.env` - Tuya API credentials (never commit)
 - `devices.json` - Tuya device cache with local keys (never commit)
 - `tools/` - Local npm packages for Railway CLI (gitignored)
+- `rates.py` - ConEd TOU rate constants and peak hour logic (from ratemate)
