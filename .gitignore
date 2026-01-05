@@ -15,6 +15,9 @@ env/
 node_modules/
 npm-debug.log*
 
+# Local tools
+tools/
+
 # Tuya device cache
 devices.json
 snapshot.json

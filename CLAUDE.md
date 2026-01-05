@@ -19,7 +19,19 @@ venv/bin/pip install package
 
 Home energy automation - controlling a Lasko AR122 smart heater via Tuya API for peak shaving with an EcoFlow battery.
 
+## Railway CLI
+
+Railway CLI is installed locally in `tools/`. Use it like:
+
+```bash
+./tools/node_modules/.bin/railway logs
+./tools/node_modules/.bin/railway status
+```
+
+You'll need to run `railway login` first if not authenticated.
+
 ## Key Files
 
 - `.env` - Tuya API credentials (never commit)
 - `devices.json` - Tuya device cache with local keys (never commit)
+- `tools/` - Local npm packages for Railway CLI (gitignored)
