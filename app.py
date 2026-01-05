@@ -513,7 +513,7 @@ async def dashboard():
                 <div class="curve-section">
                     <div class="wake-label">Temperature Curve</div>
                     <div class="curve-container">
-                        <div class="curve-temps"><span>75°</span><span>70°</span><span>65°</span></div>
+                        <div class="curve-temps" id="curve-temps"><span></span><span></span><span></span></div>
                         <canvas class="curve-canvas" id="curve-canvas"></canvas>
                         <div class="curve-labels" id="curve-labels">
                             <span>Now</span>
@@ -768,8 +768,14 @@ let selectedWakeTime = localStorage.getItem('sleepWakeTime') || '7:00 AM';
 
 function saveSleepSettings() {
     const rect = curveCanvas.getBoundingClientRect();
-    // Save as percentages so it works across screen sizes
-    const normalized = curvePoints.map(p => ({ x: p.x / rect.width, y: p.y / rect.height }));
+    const h = rect.height;
+    // Save curve as relative deltas from setpoint (not absolute temps)
+    // Y position to delta: y=0 means +5° above setpoint, y=h means -5° below
+    const yToDelta = (y) => 5 - (y / h) * 10;  // Returns delta from setpoint
+    const normalized = curvePoints.map(p => ({
+        progress: p.x / rect.width,
+        delta: yToDelta(p.y)  // e.g., -4 means "4 degrees below setpoint"
+    }));
     localStorage.setItem('sleepCurve', JSON.stringify(normalized));
     localStorage.setItem('sleepWakeTime', selectedWakeTime);
 }
@@ -897,38 +903,49 @@ function initCurve() {
         return;
     }
 
-    // Map temp to Y: 75° = top (y=0), 65° = bottom (y=h)
-    const tempToY = (temp) => ((75 - temp) / 10) * h;
-    const startY = tempToY(currentTarget);
+    // Convert delta (relative to setpoint) to Y position
+    // delta=0 means at setpoint, delta=-4 means 4° below setpoint
+    const deltaToY = (delta) => ((5 - delta) / 10) * h;
 
-    // Try to load saved curve from localStorage
+    // Try to load saved curve from localStorage (stored as deltas)
     const saved = localStorage.getItem('sleepCurve');
     if (saved) {
         try {
             const normalized = JSON.parse(saved);
-            curvePoints = normalized.map(p => ({ x: p.x * w, y: p.y * h }));
-            // Always update start/end to current setpoint
-            if (curvePoints.length >= 2) {
-                curvePoints[0].y = startY;
-                curvePoints[curvePoints.length - 1].y = startY;
+            // Check if it's the new format (has delta) or old format (has y)
+            if (normalized[0] && normalized[0].delta !== undefined) {
+                curvePoints = normalized.map(p => ({
+                    x: p.progress * w,
+                    y: deltaToY(p.delta)
+                }));
+            } else {
+                // Old format - clear it
+                curvePoints = null;
             }
         } catch (e) {
             curvePoints = null;
         }
     }
 
-    // Default curve: bathtub shape - drop down, stay low, rise up
+    // Default curve: bathtub shape (in deltas: 0, -2.5, -5, -5, -5, -2.5, 0)
     if (!curvePoints || curvePoints.length !== 7) {
         curvePoints = [
-            { x: 0, y: startY },              // Start: current target
-            { x: w * 0.12, y: h * 0.5 },      // Quick drop
-            { x: w * 0.25, y: h * 0.75 },     // Bottom left
-            { x: w * 0.5, y: h * 0.75 },      // Bottom middle (flat)
-            { x: w * 0.75, y: h * 0.75 },     // Bottom right
-            { x: w * 0.88, y: h * 0.5 },      // Quick rise
-            { x: w, y: startY }               // Wake: current target
+            { x: 0, y: deltaToY(0) },           // Start: at setpoint
+            { x: w * 0.12, y: deltaToY(-2.5) }, // Quick drop
+            { x: w * 0.25, y: deltaToY(-5) },   // Bottom left
+            { x: w * 0.5, y: deltaToY(-5) },    // Bottom middle (flat)
+            { x: w * 0.75, y: deltaToY(-5) },   // Bottom right
+            { x: w * 0.88, y: deltaToY(-2.5) }, // Quick rise
+            { x: w, y: deltaToY(0) }            // Wake: back to setpoint
         ];
     }
+
+    // Update Y-axis labels based on current setpoint
+    const tempLabels = document.querySelectorAll('#curve-temps span');
+    tempLabels[0].textContent = (currentTarget + 5) + '°';
+    tempLabels[1].textContent = currentTarget + '°';
+    tempLabels[2].textContent = (currentTarget - 5) + '°';
+
     drawCurve();
 }
 
@@ -1049,8 +1066,10 @@ function drawCurve() {
 function updateCurveStats() {
     const rect = curveCanvas.getBoundingClientRect();
     const h = rect.height;
-    const yToTemp = (y) => Math.round(75 - (y / h) * 10);
-    const temps = curvePoints.map(p => yToTemp(p.y));
+    // Y to delta, then delta to absolute temp
+    const yToDelta = (y) => 5 - (y / h) * 10;
+    const deltas = curvePoints.map(p => yToDelta(p.y));
+    const temps = deltas.map(d => Math.round(currentTarget + d));
     document.getElementById('curve-start').textContent = temps[0] + '°';
     document.getElementById('curve-min').textContent = Math.min(...temps) + '°';
     document.getElementById('curve-wake').textContent = temps[temps.length - 1] + '°';
@@ -1111,10 +1130,12 @@ document.getElementById('sleep-start').onclick = async () => {
     }
 
     const rect = curveCanvas.getBoundingClientRect();
-    const yToTemp = (y) => Math.round(75 - (y / rect.height) * 10);
+    const h = rect.height;
+    // Convert Y to delta, then to absolute temp using current setpoint
+    const yToDelta = (y) => 5 - (y / h) * 10;
     const curve = curvePoints.map((p, i) => ({
         progress: p.x / rect.width,
-        temp: yToTemp(p.y)
+        temp: Math.round(currentTarget + yToDelta(p.y))
     }));
 
     try {
