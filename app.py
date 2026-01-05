@@ -580,7 +580,7 @@ for (let h = 5; h <= 11; h++) {
 }
 wakeTimes.forEach((t, i) => {
     const div = document.createElement('div');
-    div.className = 'time-item' + (t === '7:00 AM' ? ' active' : '');
+    div.className = 'time-item' + (t === selectedWakeTime ? ' active' : '');
     div.textContent = t;
     div.dataset.time = t;
     wakeWheel.appendChild(div);
