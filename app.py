@@ -646,15 +646,19 @@ function initCurve() {
     }
 
     // Default curve: bathtub shape - drop down, stay low, rise up
+    // Map temp to Y: 75° = top (y=0), 65° = bottom (y=h)
+    const tempToY = (temp) => ((75 - temp) / 10) * h;
+    const startY = tempToY(currentTarget);
+
     if (!curvePoints || curvePoints.length !== 7) {
         curvePoints = [
-            { x: 0, y: h * 0.25 },           // Start: ~72°
-            { x: w * 0.12, y: h * 0.5 },     // Quick drop
-            { x: w * 0.25, y: h * 0.75 },    // Bottom left
-            { x: w * 0.5, y: h * 0.75 },     // Bottom middle (flat)
-            { x: w * 0.75, y: h * 0.75 },    // Bottom right
-            { x: w * 0.88, y: h * 0.5 },     // Quick rise
-            { x: w, y: h * 0.25 }            // Wake: ~72°
+            { x: 0, y: startY },              // Start: current target
+            { x: w * 0.12, y: h * 0.5 },      // Quick drop
+            { x: w * 0.25, y: h * 0.75 },     // Bottom left
+            { x: w * 0.5, y: h * 0.75 },      // Bottom middle (flat)
+            { x: w * 0.75, y: h * 0.75 },     // Bottom right
+            { x: w * 0.88, y: h * 0.5 },      // Quick rise
+            { x: w, y: startY }               // Wake: current target
         ];
     }
     drawCurve();
@@ -713,12 +717,12 @@ function drawCurve() {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Draw control points
+    // Draw control points (all points are draggable)
     curvePoints.forEach((p, i) => {
-        if (i === 0 || i === curvePoints.length - 1) return; // Don't show endpoints
         ctx.beginPath();
         ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
-        ctx.fillStyle = '#8B5CF6';
+        // Endpoints get different color
+        ctx.fillStyle = (i === 0 || i === curvePoints.length - 1) ? '#10B981' : '#8B5CF6';
         ctx.fill();
         ctx.beginPath();
         ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
@@ -745,7 +749,8 @@ curveCanvas.addEventListener('pointerdown', (e) => {
     const rect = curveCanvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    for (let i = 1; i < curvePoints.length - 1; i++) {
+    // Check all points including endpoints
+    for (let i = 0; i < curvePoints.length; i++) {
         const p = curvePoints[i];
         if (Math.hypot(p.x - x, p.y - y) < 20) {
             draggingPoint = i;
@@ -753,7 +758,7 @@ curveCanvas.addEventListener('pointerdown', (e) => {
             return;
         }
     }
-    // If not on a point, add one or move nearest
+    // If not on a point, move nearest middle point
     let nearestDist = Infinity, nearestIdx = -1;
     for (let i = 1; i < curvePoints.length - 1; i++) {
         const dist = Math.abs(curvePoints[i].x - x);
@@ -769,6 +774,7 @@ curveCanvas.addEventListener('pointermove', (e) => {
     if (draggingPoint === null) return;
     const rect = curveCanvas.getBoundingClientRect();
     const y = e.clientY - rect.top;
+    // Only move Y (keep X fixed for all points)
     curvePoints[draggingPoint].y = Math.max(10, Math.min(rect.height - 10, y));
     drawCurve();
 });
