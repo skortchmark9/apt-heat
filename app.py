@@ -628,13 +628,17 @@ function updateTimeLabels() {
     // Calculate duration in ms
     const duration = wake - now;
 
-    // Format time helper
+    // Format time helper (rounds to nearest 30 min)
     const formatTime = (date) => {
         let h = date.getHours();
-        const m = date.getMinutes();
+        let m = date.getMinutes();
+        // Round to nearest 30 min
+        if (m < 15) m = 0;
+        else if (m < 45) m = 30;
+        else { m = 0; h = (h + 1) % 24; }
         const suffix = h >= 12 ? 'pm' : 'am';
         h = h % 12 || 12;
-        return m === 0 ? `${h}${suffix}` : `${h}:${m.toString().padStart(2,'0')}${suffix}`;
+        return m === 0 ? `${h}${suffix}` : `${h}:30${suffix}`;
     };
 
     // Set labels at 0%, 25%, 50%, 75%, 100%
