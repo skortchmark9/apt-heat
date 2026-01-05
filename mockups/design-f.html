@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Energy Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --green: #22c55e;
+            --green-light: #dcfce7;
+            --gray: #6b7280;
+            --gray-light: #e5e7eb;
+            --black: #111827;
+        }
+
+        html {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 16px;
+            -webkit-font-smoothing: antialiased;
+            scroll-behavior: smooth;
+        }
+
+        body {
+            background: #fff;
+            color: var(--black);
+            line-height: 1.4;
+        }
+
+        section {
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 3rem 1.5rem;
+            position: relative;
+        }
+
+        .hero {
+            text-align: center;
+        }
+
+        .hero-amount {
+            font-size: 4.5rem;
+            font-weight: 700;
+            color: var(--green);
+            letter-spacing: -0.03em;
+            line-height: 1;
+        }
+
+        .hero-label {
+            font-size: 1.125rem;
+            color: var(--gray);
+            margin-top: 0.75rem;
+            font-weight: 400;
+        }
+
+        .scroll-indicator {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--gray-light);
+            animation: bounce 2s infinite;
+        }
+
+        .scroll-indicator span {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .scroll-indicator svg {
+            width: 24px;
+            height: 24px;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            50% { transform: translateX(-50%) translateY(8px); }
+        }
+
+        .story-section {
+            text-align: center;
+            max-width: 320px;
+        }
+
+        .story-intro {
+            font-size: 1.25rem;
+            color: var(--gray);
+            margin-bottom: 1rem;
+            font-weight: 400;
+        }
+
+        .story-number {
+            font-size: 4rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            line-height: 1;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+
+        .story-number.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .story-number.villain {
+            color: var(--gray);
+        }
+
+        .story-number.hero-num {
+            color: var(--green);
+        }
+
+        .story-unit {
+            font-size: 1.125rem;
+            color: var(--gray);
+            margin-top: 0.5rem;
+        }
+
+        .story-context {
+            font-size: 0.875rem;
+            color: var(--gray-light);
+            margin-top: 1.5rem;
+        }
+
+        /* Chart Section */
+        .chart-section {
+            width: 100%;
+            max-width: 340px;
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 160px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 2px;
+            padding: 0 0.5rem;
+        }
+
+        .chart-bar {
+            flex: 1;
+            border-radius: 2px 2px 0 0;
+            transition: height 0.4s ease;
+        }
+
+        .chart-bar.battery {
+            background: var(--green);
+        }
+
+        .chart-bar.grid {
+            background: var(--gray-light);
+        }
+
+        .chart-labels {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 0.75rem;
+            padding: 0 0.5rem;
+        }
+
+        .chart-labels span {
+            font-size: 0.625rem;
+            color: var(--gray-light);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .chart-caption {
+            text-align: center;
+            font-size: 0.875rem;
+            color: var(--gray);
+            margin-top: 2rem;
+        }
+
+        .chart-legend {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-top: 1rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .legend-dot.battery {
+            background: var(--green);
+        }
+
+        .legend-dot.grid {
+            background: var(--gray-light);
+        }
+
+        /* Home Section */
+        .home-section {
+            text-align: center;
+        }
+
+        .home-label {
+            font-size: 1rem;
+            color: var(--gray);
+            margin-bottom: 1.5rem;
+        }
+
+        .home-temp {
+            font-size: 5rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            line-height: 1;
+        }
+
+        .home-details {
+            display: flex;
+            flex-direction: column;
+            gap: 0.375rem;
+            margin-top: 2rem;
+            font-size: 0.875rem;
+            color: var(--gray);
+        }
+
+        .home-details span {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .battery-section {
+            margin-top: 3rem;
+            width: 100%;
+            max-width: 200px;
+        }
+
+        .battery-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--gray);
+            margin-bottom: 0.5rem;
+        }
+
+        .battery-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--gray-light);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .battery-fill {
+            height: 100%;
+            background: var(--green);
+            border-radius: 4px;
+            transition: width 1s ease;
+        }
+
+        /* Month Section */
+        .month-amount {
+            font-size: 5rem;
+            font-weight: 700;
+            color: var(--green);
+            letter-spacing: -0.03em;
+            line-height: 1;
+        }
+
+        .month-context {
+            font-size: 1rem;
+            color: var(--gray);
+            margin-top: 0.75rem;
+            max-width: 240px;
+            text-align: center;
+        }
+
+        /* Footer */
+        footer {
+            padding: 3rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+            border-top: 1px solid var(--gray-light);
+        }
+
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .toggle-label {
+            font-size: 0.875rem;
+            color: var(--gray);
+        }
+
+        .toggle {
+            width: 48px;
+            height: 28px;
+            background: var(--green);
+            border-radius: 14px;
+            position: relative;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .toggle.off {
+            background: var(--gray-light);
+        }
+
+        .toggle-knob {
+            width: 22px;
+            height: 22px;
+            background: #fff;
+            border-radius: 50%;
+            position: absolute;
+            top: 3px;
+            right: 3px;
+            transition: transform 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .toggle.off .toggle-knob {
+            transform: translateX(-20px);
+        }
+
+        .settings-link {
+            font-size: 0.75rem;
+            color: var(--gray-light);
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            transition: color 0.2s ease;
+        }
+
+        .settings-link:hover {
+            color: var(--gray);
+        }
+
+        /* Scroll animations */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.8s ease, transform 0.8s ease;
+        }
+
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-amount">$2.90</div>
+        <div class="hero-label">saved today</div>
+        <div class="scroll-indicator">
+            <span>Scroll</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+        </div>
+    </section>
+
+    <!-- Section 1: Current Price -->
+    <section>
+        <div class="story-section fade-in">
+            <div class="story-intro">Right now, electricity costs</div>
+            <div class="story-number villain">$0.35</div>
+            <div class="story-unit">per kilowatt hour</div>
+            <div class="story-context">Super-Peak pricing, 12pm-6pm</div>
+        </div>
+    </section>
+
+    <!-- Section 2: Your Price -->
+    <section>
+        <div class="story-section fade-in">
+            <div class="story-intro">But you're paying</div>
+            <div class="story-number hero-num">$0.08</div>
+            <div class="story-unit">because your battery charged overnight</div>
+        </div>
+    </section>
+
+    <!-- Section 3: Chart -->
+    <section>
+        <div class="chart-section fade-in">
+            <div class="chart-container" id="chart">
+                <!-- Bars generated by JS -->
+            </div>
+            <div class="chart-labels">
+                <span>12am</span>
+                <span>6am</span>
+                <span>12pm</span>
+                <span>6pm</span>
+                <span>Now</span>
+            </div>
+            <div class="chart-legend">
+                <div class="legend-item">
+                    <div class="legend-dot battery"></div>
+                    <span>Battery</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-dot grid"></div>
+                    <span>Grid</span>
+                </div>
+            </div>
+            <div class="chart-caption">Today's power source by hour</div>
+        </div>
+    </section>
+
+    <!-- Section 4: Home Status -->
+    <section>
+        <div class="home-section fade-in">
+            <div class="home-label">Your home right now</div>
+            <div class="home-temp">68Â°F</div>
+            <div class="home-details">
+                <span>Target 72Â°F</span>
+                <span><span class="status-dot"></span> Heater running</span>
+                <span>Outside 27Â°F</span>
+            </div>
+            <div class="battery-section">
+                <div class="battery-label">
+                    <span>Battery</span>
+                    <span>78%</span>
+                </div>
+                <div class="battery-bar">
+                    <div class="battery-fill" style="width: 78%"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section 5: Month Summary -->
+    <section>
+        <div class="story-section fade-in">
+            <div class="story-intro">This month so far</div>
+            <div class="month-amount">$47</div>
+            <div class="month-context">saved across 23 peak-shaving events</div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="toggle-container">
+            <span class="toggle-label">Smart Mode</span>
+            <div class="toggle" id="smartToggle">
+                <div class="toggle-knob"></div>
+            </div>
+        </div>
+        <a href="#" class="settings-link">Settings</a>
+    </footer>
+
+    <script>
+        // Generate chart bars
+        const chart = document.getElementById('chart');
+        const hourData = [
+            // 12am-6am: charging from grid (gray, low usage)
+            { type: 'grid', height: 15 },
+            { type: 'grid', height: 20 },
+            { type: 'grid', height: 25 },
+            { type: 'grid', height: 30 },
+            { type: 'grid', height: 25 },
+            { type: 'grid', height: 20 },
+            // 6am-12pm: battery kicks in
+            { type: 'battery', height: 35 },
+            { type: 'battery', height: 50 },
+            { type: 'battery', height: 65 },
+            { type: 'battery', height: 70 },
+            { type: 'battery', height: 75 },
+            { type: 'battery', height: 80 },
+            // 12pm-6pm: peak hours, all battery
+            { type: 'battery', height: 90 },
+            { type: 'battery', height: 95 },
+            { type: 'battery', height: 100 },
+            { type: 'battery', height: 95 },
+            { type: 'battery', height: 85 },
+            { type: 'battery', height: 75 },
+            // 6pm onwards: mixed
+            { type: 'battery', height: 60 },
+            { type: 'battery', height: 45 },
+            { type: 'grid', height: 30 },
+            { type: 'grid', height: 25 },
+            { type: 'grid', height: 20 },
+            { type: 'grid', height: 15 },
+        ];
+
+        hourData.forEach((bar, i) => {
+            const div = document.createElement('div');
+            div.className = `chart-bar ${bar.type}`;
+            div.style.height = '0%';
+            chart.appendChild(div);
+        });
+
+        // Intersection Observer for animations
+        const observerOptions = {
+            threshold: 0.3,
+            rootMargin: '0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+
+                    // Animate chart bars when chart section is visible
+                    if (entry.target.closest('section')?.querySelector('#chart')) {
+                        const bars = chart.querySelectorAll('.chart-bar');
+                        bars.forEach((bar, i) => {
+                            setTimeout(() => {
+                                bar.style.height = hourData[i].height + '%';
+                            }, i * 30);
+                        });
+                    }
+
+                    // Animate story numbers
+                    const storyNumber = entry.target.querySelector('.story-number');
+                    if (storyNumber) {
+                        setTimeout(() => {
+                            storyNumber.classList.add('visible');
+                        }, 200);
+                    }
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.fade-in').forEach(el => {
+            observer.observe(el);
+        });
+
+        // Toggle functionality
+        const toggle = document.getElementById('smartToggle');
+        toggle.addEventListener('click', () => {
+            toggle.classList.toggle('off');
+        });
+    </script>
+</body>
+</html>

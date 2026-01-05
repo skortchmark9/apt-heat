@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RateMate - Peak Shaving Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --green-500: #10B981;
+            --green-600: #059669;
+            --green-100: #D1FAE5;
+            --green-50: #ECFDF5;
+            --gray-50: #F9FAFB;
+            --gray-100: #F3F4F6;
+            --gray-200: #E5E7EB;
+            --gray-300: #D1D5DB;
+            --gray-400: #9CA3AF;
+            --gray-500: #6B7280;
+            --gray-600: #4B5563;
+            --gray-700: #374151;
+            --gray-800: #1F2937;
+            --gray-900: #111827;
+            --bg: #f8fafc;
+            --white: #ffffff;
+            --red-500: #EF4444;
+            --amber-500: #F59E0B;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg);
+            color: var(--gray-800);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 480px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: var(--white);
+            padding: 24px 20px 32px;
+            border-bottom: 1px solid var(--gray-100);
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--green-50);
+            border: 1px solid var(--green-100);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--green-600);
+            margin-bottom: 20px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--green-500);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .hero-savings {
+            margin-bottom: 8px;
+        }
+
+        .hero-savings .amount {
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--green-500);
+            letter-spacing: -2px;
+            line-height: 1.1;
+        }
+
+        .hero-savings .label {
+            font-size: 18px;
+            color: var(--gray-500);
+            font-weight: 400;
+            margin-left: 4px;
+        }
+
+        .hero-projection {
+            font-size: 15px;
+            color: var(--gray-500);
+            margin-bottom: 24px;
+        }
+
+        .hero-projection span {
+            color: var(--gray-700);
+            font-weight: 600;
+        }
+
+        .rate-comparison {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: var(--gray-50);
+            padding: 16px;
+            border-radius: 12px;
+        }
+
+        .rate-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .rate-label {
+            font-size: 12px;
+            color: var(--gray-500);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .rate-value {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .rate-value.strikethrough {
+            color: var(--gray-400);
+            text-decoration: line-through;
+            text-decoration-color: var(--red-500);
+        }
+
+        .rate-value.savings {
+            color: var(--green-500);
+        }
+
+        .rate-arrow {
+            color: var(--gray-300);
+            font-size: 20px;
+        }
+
+        /* Sections */
+        .section {
+            background: var(--white);
+            margin-top: 12px;
+            padding: 24px 20px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--gray-400);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .section-subtitle {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--gray-800);
+            margin-bottom: 12px;
+        }
+
+        .section-text {
+            font-size: 15px;
+            color: var(--gray-600);
+            line-height: 1.6;
+        }
+
+        /* Time of Use Visualization */
+        .tou-bar {
+            display: flex;
+            height: 48px;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 20px 0;
+            position: relative;
+        }
+
+        .tou-segment {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 10px;
+            font-weight: 500;
+            position: relative;
+        }
+
+        .tou-segment.off-peak {
+            background: var(--gray-300);
+            flex: 5;
+        }
+
+        .tou-segment.partial-peak {
+            background: var(--amber-500);
+            flex: 3;
+        }
+
+        .tou-segment.super-peak {
+            background: var(--red-500);
+            flex: 6;
+        }
+
+        .tou-segment.evening {
+            background: var(--amber-500);
+            flex: 4;
+        }
+
+        .tou-segment.night {
+            background: var(--gray-300);
+            flex: 6;
+        }
+
+        .tou-label {
+            font-size: 9px;
+            opacity: 0.9;
+        }
+
+        .tou-time {
+            font-size: 8px;
+            opacity: 0.7;
+        }
+
+        .you-are-here {
+            position: absolute;
+            top: -24px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .you-are-here-text {
+            background: var(--gray-800);
+            color: white;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
+
+        .you-are-here-arrow {
+            width: 0;
+            height: 0;
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 5px solid var(--gray-800);
+        }
+
+        .tou-legend {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--gray-500);
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 3px;
+        }
+
+        .legend-dot.off-peak { background: var(--gray-300); }
+        .legend-dot.partial-peak { background: var(--amber-500); }
+        .legend-dot.super-peak { background: var(--red-500); }
+
+        /* Chart Section */
+        .chart-container {
+            position: relative;
+            height: 180px;
+            margin: 16px 0;
+        }
+
+        .chart-callout {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            background: var(--green-50);
+            border-left: 3px solid var(--green-500);
+            padding: 12px 16px;
+            border-radius: 0 8px 8px 0;
+            margin-top: 16px;
+        }
+
+        .callout-icon {
+            width: 20px;
+            height: 20px;
+            background: var(--green-500);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .callout-text {
+            font-size: 14px;
+            color: var(--gray-700);
+        }
+
+        /* Setup Section */
+        .setup-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .setup-card {
+            background: var(--gray-50);
+            padding: 16px;
+            border-radius: 12px;
+        }
+
+        .setup-card.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .setup-label {
+            font-size: 12px;
+            color: var(--gray-500);
+            margin-bottom: 4px;
+        }
+
+        .setup-value {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--gray-800);
+        }
+
+        .setup-value.small {
+            font-size: 16px;
+        }
+
+        .setup-sub {
+            font-size: 12px;
+            color: var(--gray-500);
+            margin-top: 2px;
+        }
+
+        .setup-value .unit {
+            font-size: 14px;
+            font-weight: 400;
+            color: var(--gray-500);
+        }
+
+        .temp-arrow {
+            color: var(--gray-400);
+            margin: 0 4px;
+        }
+
+        .battery-bar {
+            height: 6px;
+            background: var(--gray-200);
+            border-radius: 3px;
+            margin-top: 8px;
+            overflow: hidden;
+        }
+
+        .battery-fill {
+            height: 100%;
+            background: var(--green-500);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        /* Collapsible */
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            padding: 4px 0;
+        }
+
+        .collapsible-header:hover {
+            opacity: 0.8;
+        }
+
+        .chevron {
+            width: 20px;
+            height: 20px;
+            color: var(--gray-400);
+            transition: transform 0.2s ease;
+        }
+
+        .chevron.open {
+            transform: rotate(180deg);
+        }
+
+        .collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .collapsible-content.open {
+            max-height: 500px;
+        }
+
+        /* Smart Mode */
+        .smart-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--gray-50);
+            padding: 16px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+        }
+
+        .toggle-text {
+            flex: 1;
+        }
+
+        .toggle-title {
+            font-size: 15px;
+            font-weight: 500;
+            color: var(--gray-800);
+        }
+
+        .toggle-desc {
+            font-size: 13px;
+            color: var(--gray-500);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 52px;
+            height: 28px;
+            background: var(--green-500);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            background: white;
+            border-radius: 50%;
+            top: 2px;
+            right: 2px;
+            transition: transform 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .toggle-switch.off {
+            background: var(--gray-300);
+        }
+
+        .toggle-switch.off::after {
+            transform: translateX(-24px);
+        }
+
+        .schedule {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .schedule-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--gray-50);
+            border-radius: 8px;
+        }
+
+        .schedule-time {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--gray-800);
+        }
+
+        .schedule-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: var(--gray-500);
+        }
+
+        .schedule-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .schedule-dot.battery { background: var(--green-500); }
+        .schedule-dot.grid { background: var(--gray-300); }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 24px 20px 40px;
+            color: var(--gray-400);
+            font-size: 12px;
+        }
+
+        /* Desktop adjustments */
+        @media (min-width: 480px) {
+            body {
+                padding: 20px;
+            }
+
+            .hero, .section {
+                border-radius: 16px;
+                border: 1px solid var(--gray-100);
+            }
+
+            .hero {
+                margin-top: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <div class="hero">
+        <div class="container">
+            <div class="status-pill">
+                <span class="status-dot"></span>
+                Battery Active - Super Peak
+            </div>
+
+            <div class="hero-savings">
+                <span class="amount">$2.90</span>
+                <span class="label">saved today</span>
+            </div>
+
+            <p class="hero-projection">Projected this month: <span>$47</span></p>
+
+            <div class="rate-comparison">
+                <div class="rate-item">
+                    <span class="rate-label">Grid Rate</span>
+                    <span class="rate-value strikethrough">$0.35/kWh</span>
+                </div>
+                <span class="rate-arrow">â</span>
+                <div class="rate-item">
+                    <span class="rate-label">Your Cost</span>
+                    <span class="rate-value savings">$0.08/kWh</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Why This Matters -->
+    <div class="section">
+        <div class="container">
+            <span class="section-title">Why This Matters</span>
+
+            <div class="tou-bar">
+                <div class="tou-segment off-peak">
+                    <span class="tou-label">Off-Peak</span>
+                    <span class="tou-time">12-9am</span>
+                </div>
+                <div class="tou-segment partial-peak">
+                    <span class="tou-label">Partial</span>
+                    <span class="tou-time">9-12</span>
+                </div>
+                <div class="tou-segment super-peak" style="position: relative;">
+                    <div class="you-are-here" style="left: 40%;">
+                        <span class="you-are-here-text">You are here</span>
+                        <span class="you-are-here-arrow"></span>
+                    </div>
+                    <span class="tou-label">Super Peak</span>
+                    <span class="tou-time">12-6pm</span>
+                </div>
+                <div class="tou-segment evening">
+                    <span class="tou-label">Partial</span>
+                    <span class="tou-time">6-10</span>
+                </div>
+                <div class="tou-segment night">
+                    <span class="tou-label">Off-Peak</span>
+                    <span class="tou-time">10-12</span>
+                </div>
+            </div>
+
+            <div class="tou-legend">
+                <div class="legend-item">
+                    <span class="legend-dot off-peak"></span>
+                    <span>$0.08</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-dot partial-peak"></span>
+                    <span>$0.18</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-dot super-peak"></span>
+                    <span>$0.35</span>
+                </div>
+            </div>
+
+            <p class="section-text" style="margin-top: 16px;">
+                Right now is <strong>Super-Peak</strong> (12pmâ6pm). Electricity costs <strong>4x more</strong>. Your battery is covering the heater.
+            </p>
+        </div>
+    </div>
+
+    <!-- Today's Story -->
+    <div class="section">
+        <div class="container">
+            <span class="section-title">Today's Story</span>
+            <h3 class="section-subtitle">Energy Source by Hour</h3>
+
+            <div class="chart-container">
+                <canvas id="hourlyChart"></canvas>
+            </div>
+
+            <div class="chart-callout">
+                <span class="callout-icon">â¡</span>
+                <span class="callout-text">Battery took over at 12pm when rates spiked to $0.35/kWh</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Your Setup -->
+    <div class="section">
+        <div class="container">
+            <div class="collapsible-header" onclick="toggleSetup()">
+                <span class="section-title">Your Setup</span>
+                <svg class="chevron" id="setupChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+            </div>
+
+            <div class="collapsible-content" id="setupContent">
+                <div class="setup-grid" style="margin-top: 16px;">
+                    <div class="setup-card">
+                        <span class="setup-label">Temperature</span>
+                        <span class="setup-value">
+                            68Â°<span class="temp-arrow">â</span>72Â°
+                        </span>
+                        <span class="setup-sub">Current â Target</span>
+                    </div>
+                    <div class="setup-card">
+                        <span class="setup-label">Outdoor</span>
+                        <span class="setup-value">27Â°<span class="unit">F</span></span>
+                        <span class="setup-sub">Feels like 22Â°</span>
+                    </div>
+                    <div class="setup-card">
+                        <span class="setup-label">Heater</span>
+                        <span class="setup-value small" style="color: var(--green-500);">ON</span>
+                        <span class="setup-sub">Lasko AR122 Â· 1200W</span>
+                    </div>
+                    <div class="setup-card">
+                        <span class="setup-label">Battery</span>
+                        <span class="setup-value small">78%</span>
+                        <span class="setup-sub">EcoFlow Delta Â· 1.2 kWh left</span>
+                        <div class="battery-bar">
+                            <div class="battery-fill" style="width: 78%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Smart Mode -->
+    <div class="section">
+        <div class="container">
+            <span class="section-title">Smart Mode</span>
+
+            <div class="smart-toggle" style="margin-top: 16px;">
+                <div class="toggle-text">
+                    <div class="toggle-title">Auto Peak Shaving</div>
+                    <div class="toggle-desc">Use battery during expensive hours</div>
+                </div>
+                <div class="toggle-switch" id="smartToggle" onclick="toggleSmart()"></div>
+            </div>
+
+            <h4 style="font-size: 14px; font-weight: 500; color: var(--gray-600); margin-bottom: 12px;">Today's Schedule</h4>
+
+            <div class="schedule">
+                <div class="schedule-item">
+                    <span class="schedule-time">12:00 AM â 9:00 AM</span>
+                    <span class="schedule-label">
+                        <span class="schedule-dot grid"></span>
+                        Grid (cheap)
+                    </span>
+                </div>
+                <div class="schedule-item">
+                    <span class="schedule-time">9:00 AM â 12:00 PM</span>
+                    <span class="schedule-label">
+                        <span class="schedule-dot battery"></span>
+                        Battery
+                    </span>
+                </div>
+                <div class="schedule-item" style="background: var(--green-50); border: 1px solid var(--green-100);">
+                    <span class="schedule-time" style="color: var(--green-600);">12:00 PM â 6:00 PM</span>
+                    <span class="schedule-label">
+                        <span class="schedule-dot battery"></span>
+                        <span style="color: var(--green-600); font-weight: 500;">Battery (now)</span>
+                    </span>
+                </div>
+                <div class="schedule-item">
+                    <span class="schedule-time">6:00 PM â 10:00 PM</span>
+                    <span class="schedule-label">
+                        <span class="schedule-dot battery"></span>
+                        Battery
+                    </span>
+                </div>
+                <div class="schedule-item">
+                    <span class="schedule-time">10:00 PM â 12:00 AM</span>
+                    <span class="schedule-label">
+                        <span class="schedule-dot grid"></span>
+                        Grid (cheap)
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Last updated: 2:34 PM</p>
+    </div>
+
+    <script>
+        // Toggle Setup Section
+        function toggleSetup() {
+            const content = document.getElementById('setupContent');
+            const chevron = document.getElementById('setupChevron');
+            content.classList.toggle('open');
+            chevron.classList.toggle('open');
+        }
+
+        // Toggle Smart Mode
+        function toggleSmart() {
+            const toggle = document.getElementById('smartToggle');
+            toggle.classList.toggle('off');
+        }
+
+        // Open setup by default
+        document.getElementById('setupContent').classList.add('open');
+        document.getElementById('setupChevron').classList.add('open');
+
+        // Hourly Chart
+        const ctx = document.getElementById('hourlyChart').getContext('2d');
+
+        const hours = ['6am', '7', '8', '9', '10', '11', '12pm', '1', '2', '3'];
+        const gridData = [0.4, 0.5, 0.6, 0.3, 0.2, 0.4, 0, 0, 0, 0];
+        const batteryData = [0, 0, 0, 0.3, 0.5, 0.4, 0.8, 0.9, 1.0, 0.7];
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: hours,
+                datasets: [
+                    {
+                        label: 'Grid',
+                        data: gridData,
+                        backgroundColor: '#D1D5DB',
+                        borderRadius: 4,
+                        barPercentage: 0.7,
+                    },
+                    {
+                        label: 'Battery',
+                        data: batteryData,
+                        backgroundColor: '#10B981',
+                        borderRadius: 4,
+                        barPercentage: 0.7,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: {
+                            boxWidth: 12,
+                            boxHeight: 12,
+                            useBorderRadius: true,
+                            borderRadius: 3,
+                            padding: 16,
+                            font: {
+                                size: 12
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: '#1F2937',
+                        titleFont: { size: 12 },
+                        bodyFont: { size: 12 },
+                        padding: 10,
+                        cornerRadius: 8,
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + ' kWh';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            font: { size: 11 },
+                            color: '#9CA3AF'
+                        }
+                    },
+                    y: {
+                        stacked: true,
+                        grid: {
+                            color: '#F3F4F6'
+                        },
+                        ticks: {
+                            font: { size: 11 },
+                            color: '#9CA3AF',
+                            callback: function(value) {
+                                return value + ' kWh';
+                            }
+                        },
+                        max: 1.5
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

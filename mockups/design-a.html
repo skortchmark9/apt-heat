@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Heater Monitor - Peak Shaving Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-card: #16213e;
+            --bg-card-alt: #1f2b47;
+            --accent: #e94560;
+            --accent-glow: rgba(233, 69, 96, 0.3);
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --text-muted: #6b6b7b;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --info: #60a5fa;
+            --off-peak: #4ade80;
+            --peak: #fbbf24;
+            --super-peak: #ef4444;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding-bottom: 70px;
+            overflow-x: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-primary) 100%);
+            padding: 16px 16px 8px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .header-time {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .period-banner {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--bg-card-alt);
+            border-radius: 8px;
+            font-size: 13px;
+        }
+
+        .period-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .period-dot.off-peak { background: var(--off-peak); }
+        .period-dot.peak { background: var(--peak); }
+        .period-dot.super-peak { background: var(--super-peak); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .period-label {
+            font-weight: 600;
+        }
+
+        .period-time {
+            color: var(--text-secondary);
+            margin-left: auto;
+        }
+
+        /* Main Content */
+        .content {
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .collapse-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px;
+            font-size: 18px;
+            transition: transform 0.3s;
+        }
+
+        .collapse-btn.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .card-content {
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .card-content.collapsed {
+            max-height: 0 !important;
+        }
+
+        /* Battery Ring Card */
+        .battery-card {
+            text-align: center;
+            padding: 20px 16px;
+        }
+
+        .battery-ring-container {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            margin: 0 auto 16px;
+        }
+
+        .battery-ring {
+            transform: rotate(-90deg);
+        }
+
+        .battery-ring-bg {
+            fill: none;
+            stroke: var(--bg-card-alt);
+            stroke-width: 12;
+        }
+
+        .battery-ring-progress {
+            fill: none;
+            stroke: var(--success);
+            stroke-width: 12;
+            stroke-linecap: round;
+            stroke-dasharray: 377;
+            stroke-dashoffset: 83;
+            transition: stroke-dashoffset 1s ease;
+        }
+
+        .battery-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .battery-percent {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        .battery-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .battery-info {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-top: 8px;
+        }
+
+        .battery-stat {
+            text-align: center;
+        }
+
+        .battery-stat-value {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .battery-stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .battery-device {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 8px;
+        }
+
+        /* Heater Status Card */
+        .heater-status {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .status-item {
+            background: var(--bg-card-alt);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .status-item.wide {
+            grid-column: span 2;
+        }
+
+        .status-icon {
+            font-size: 24px;
+            margin-bottom: 4px;
+        }
+
+        .status-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .status-value.small {
+            font-size: 18px;
+        }
+
+        .status-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .power-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 56px;
+            height: 28px;
+            background: var(--bg-primary);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .toggle-switch.active {
+            background: var(--accent);
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+
+        .toggle-switch.active::after {
+            transform: translateX(28px);
+        }
+
+        .heat-level {
+            display: flex;
+            gap: 4px;
+            justify-content: center;
+            margin-top: 8px;
+        }
+
+        .heat-bar {
+            width: 8px;
+            height: 20px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+        }
+
+        .heat-bar.active {
+            background: var(--accent);
+        }
+
+        /* TOU Savings Card */
+        .savings-highlight {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: linear-gradient(135deg, rgba(74, 222, 128, 0.15) 0%, rgba(74, 222, 128, 0.05) 100%);
+            border-radius: 12px;
+            border: 1px solid rgba(74, 222, 128, 0.3);
+            margin-bottom: 16px;
+        }
+
+        .savings-amount {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--success);
+        }
+
+        .savings-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .savings-trend {
+            font-size: 13px;
+            color: var(--success);
+        }
+
+        .tou-chart-container {
+            height: 180px;
+            margin-bottom: 12px;
+        }
+
+        .tou-legend {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            font-size: 11px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .legend-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
+
+        .legend-dot.grid { background: var(--text-muted); }
+        .legend-dot.battery { background: var(--success); }
+
+        /* Temperature Chart Card */
+        .temp-chart-container {
+            height: 160px;
+        }
+
+        /* Power Chart Card */
+        .power-chart-container {
+            height: 120px;
+        }
+
+        /* Bottom Navigation */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--bg-card);
+            border-top: 1px solid var(--bg-card-alt);
+            display: flex;
+            justify-content: space-around;
+            padding: 8px 0;
+            padding-bottom: max(8px, env(safe-area-inset-bottom));
+            z-index: 100;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            padding: 8px 16px;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+            cursor: pointer;
+        }
+
+        .nav-item.active {
+            color: var(--accent);
+        }
+
+        .nav-icon {
+            font-size: 20px;
+        }
+
+        .nav-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Tab content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        /* Settings styles */
+        .settings-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid var(--bg-card-alt);
+        }
+
+        .settings-item:last-child {
+            border-bottom: none;
+        }
+
+        .settings-label {
+            font-size: 15px;
+        }
+
+        .settings-value {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* Responsive adjustments */
+        @media (min-width: 428px) {
+            .content {
+                max-width: 428px;
+                margin: 0 auto;
+            }
+
+            .bottom-nav {
+                max-width: 428px;
+                left: 50%;
+                transform: translateX(-50%);
+                border-radius: 16px 16px 0 0;
+            }
+        }
+
+        @media (min-width: 768px) {
+            body {
+                padding-bottom: 0;
+            }
+
+            .content {
+                max-width: 800px;
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 16px;
+                padding: 20px;
+            }
+
+            .battery-card {
+                grid-column: span 2;
+            }
+
+            .bottom-nav {
+                display: none;
+            }
+
+            .header {
+                max-width: 800px;
+                margin: 0 auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-top">
+            <h1>Heater Monitor</h1>
+            <span class="header-time" id="currentTime">2:34 PM</span>
+        </div>
+        <div class="period-banner">
+            <span class="period-dot super-peak"></span>
+            <span class="period-label">Super-Peak</span>
+            <span class="period-time">12:00 PM - 6:00 PM</span>
+        </div>
+    </header>
+
+    <main class="content">
+        <!-- Home Tab -->
+        <div class="tab-content active" id="tab-home">
+            <!-- Battery Status -->
+            <div class="card battery-card">
+                <div class="battery-ring-container">
+                    <svg class="battery-ring" width="140" height="140" viewBox="0 0 140 140">
+                        <circle class="battery-ring-bg" cx="70" cy="70" r="60"/>
+                        <circle class="battery-ring-progress" cx="70" cy="70" r="60"/>
+                    </svg>
+                    <div class="battery-center">
+                        <div class="battery-percent">78%</div>
+                        <div class="battery-label">Charged</div>
+                    </div>
+                </div>
+                <div class="battery-info">
+                    <div class="battery-stat">
+                        <div class="battery-stat-value">1.2</div>
+                        <div class="battery-stat-label">kWh Available</div>
+                    </div>
+                    <div class="battery-stat">
+                        <div class="battery-stat-value">340W</div>
+                        <div class="battery-stat-label">Discharge</div>
+                    </div>
+                </div>
+                <div class="battery-device">EcoFlow Delta 2</div>
+            </div>
+
+            <!-- Heater Status -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Heater Status</span>
+                    <button class="collapse-btn" data-target="heater-content">&#9660;</button>
+                </div>
+                <div class="card-content" id="heater-content">
+                    <div class="heater-status">
+                        <div class="status-item">
+                            <div class="status-icon">ð¡ï¸</div>
+                            <div class="status-value">72Â°</div>
+                            <div class="status-label">Current</div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon">ð¯</div>
+                            <div class="status-value">74Â°</div>
+                            <div class="status-label">Target</div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon">âï¸</div>
+                            <div class="status-value small">38Â°</div>
+                            <div class="status-label">Outdoor</div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-icon">â¡</div>
+                            <div class="status-value small">1200W</div>
+                            <div class="status-label">Power</div>
+                        </div>
+                        <div class="status-item wide">
+                            <div class="power-toggle">
+                                <span>Power</span>
+                                <div class="toggle-switch active" id="powerToggle"></div>
+                                <span style="color: var(--success)">ON</span>
+                            </div>
+                            <div class="heat-level">
+                                <div class="heat-bar active"></div>
+                                <div class="heat-bar active"></div>
+                                <div class="heat-bar active"></div>
+                                <div class="heat-bar"></div>
+                                <div class="heat-bar"></div>
+                            </div>
+                            <div class="status-label" style="margin-top: 8px;">Heat Level 3/5</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TOU Savings -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Today's Savings</span>
+                    <button class="collapse-btn" data-target="savings-content">&#9660;</button>
+                </div>
+                <div class="card-content" id="savings-content">
+                    <div class="savings-highlight">
+                        <div>
+                            <div class="savings-amount">$2.90</div>
+                            <div class="savings-label">Saved Today</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div class="savings-trend">+18%</div>
+                            <div class="savings-label">vs Yesterday</div>
+                        </div>
+                    </div>
+                    <div class="tou-chart-container">
+                        <canvas id="touChart"></canvas>
+                    </div>
+                    <div class="tou-legend">
+                        <div class="legend-item">
+                            <div class="legend-dot grid"></div>
+                            <span>Grid Only</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot battery"></div>
+                            <span>With Battery</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Tab -->
+        <div class="tab-content" id="tab-charts">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Temperature History</span>
+                </div>
+                <div class="card-content">
+                    <div class="temp-chart-container">
+                        <canvas id="tempChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Power Usage</span>
+                </div>
+                <div class="card-content">
+                    <div class="power-chart-container">
+                        <canvas id="powerChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Battery Tab -->
+        <div class="tab-content" id="tab-battery">
+            <div class="card battery-card">
+                <div class="battery-ring-container">
+                    <svg class="battery-ring" width="140" height="140" viewBox="0 0 140 140">
+                        <circle class="battery-ring-bg" cx="70" cy="70" r="60"/>
+                        <circle class="battery-ring-progress" cx="70" cy="70" r="60"/>
+                    </svg>
+                    <div class="battery-center">
+                        <div class="battery-percent">78%</div>
+                        <div class="battery-label">Charged</div>
+                    </div>
+                </div>
+                <div class="battery-info">
+                    <div class="battery-stat">
+                        <div class="battery-stat-value">1.2</div>
+                        <div class="battery-stat-label">kWh Available</div>
+                    </div>
+                    <div class="battery-stat">
+                        <div class="battery-stat-value">340W</div>
+                        <div class="battery-stat-label">Discharge</div>
+                    </div>
+                </div>
+                <div class="battery-device">EcoFlow Delta 2</div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Battery Schedule</span>
+                </div>
+                <div class="card-content">
+                    <div class="settings-item">
+                        <span class="settings-label">Charge During Off-Peak</span>
+                        <div class="toggle-switch active"></div>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Discharge During Peak</span>
+                        <div class="toggle-switch active"></div>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Reserve for Emergency</span>
+                        <span class="settings-value">20%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Rate Periods</span>
+                </div>
+                <div class="card-content">
+                    <div class="settings-item">
+                        <span class="settings-label" style="color: var(--off-peak);">Off-Peak</span>
+                        <span class="settings-value">12am - 8am ($0.08/kWh)</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label" style="color: var(--peak);">Peak</span>
+                        <span class="settings-value">8am-12pm, 6pm-12am ($0.22/kWh)</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label" style="color: var(--super-peak);">Super-Peak</span>
+                        <span class="settings-value">12pm - 6pm ($0.35/kWh)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div class="tab-content" id="tab-settings">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Heater Settings</span>
+                </div>
+                <div class="card-content">
+                    <div class="settings-item">
+                        <span class="settings-label">Target Temperature</span>
+                        <span class="settings-value">74Â°F</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Heat Level</span>
+                        <span class="settings-value">3 / 5</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Oscillation</span>
+                        <div class="toggle-switch"></div>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Timer</span>
+                        <span class="settings-value">Off</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Automation</span>
+                </div>
+                <div class="card-content">
+                    <div class="settings-item">
+                        <span class="settings-label">Peak Shaving Mode</span>
+                        <div class="toggle-switch active"></div>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Auto Battery Switch</span>
+                        <div class="toggle-switch active"></div>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Eco Mode</span>
+                        <div class="toggle-switch"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Device Info</span>
+                </div>
+                <div class="card-content">
+                    <div class="settings-item">
+                        <span class="settings-label">Heater</span>
+                        <span class="settings-value">Lasko AR122</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Battery</span>
+                        <span class="settings-value">EcoFlow Delta 2</span>
+                    </div>
+                    <div class="settings-item">
+                        <span class="settings-label">Connection</span>
+                        <span class="settings-value" style="color: var(--success);">Online</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <nav class="bottom-nav">
+        <a class="nav-item active" data-tab="home">
+            <span class="nav-icon">ð </span>
+            <span class="nav-label">Home</span>
+        </a>
+        <a class="nav-item" data-tab="charts">
+            <span class="nav-icon">ð</span>
+            <span class="nav-label">Charts</span>
+        </a>
+        <a class="nav-item" data-tab="battery">
+            <span class="nav-icon">ð</span>
+            <span class="nav-label">Battery</span>
+        </a>
+        <a class="nav-item" data-tab="settings">
+            <span class="nav-icon">âï¸</span>
+            <span class="nav-label">Settings</span>
+        </a>
+    </nav>
+
+    <script>
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('currentTime').textContent = now.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit'
+            });
+        }
+        updateTime();
+        setInterval(updateTime, 60000);
+
+        // Tab navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+
+                item.classList.add('active');
+                document.getElementById('tab-' + item.dataset.tab).classList.add('active');
+
+                // Initialize charts when charts tab is shown
+                if (item.dataset.tab === 'charts') {
+                    initTempChart();
+                    initPowerChart();
+                }
+            });
+        });
+
+        // Collapsible sections
+        document.querySelectorAll('.collapse-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const target = document.getElementById(btn.dataset.target);
+                btn.classList.toggle('collapsed');
+                target.classList.toggle('collapsed');
+            });
+        });
+
+        // Toggle switches
+        document.querySelectorAll('.toggle-switch').forEach(toggle => {
+            toggle.addEventListener('click', () => {
+                toggle.classList.toggle('active');
+            });
+        });
+
+        // TOU Savings Chart
+        const touCtx = document.getElementById('touChart').getContext('2d');
+        new Chart(touCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Off-Peak\n12am-8am', 'Peak\n8am-12pm', 'Super-Peak\n12pm-6pm', 'Peak\n6pm-12am'],
+                datasets: [
+                    {
+                        label: 'Grid Only',
+                        data: [0.64, 0.88, 2.10, 0.88],
+                        backgroundColor: 'rgba(107, 107, 123, 0.8)',
+                        borderRadius: 4,
+                        barPercentage: 0.6,
+                        categoryPercentage: 0.8
+                    },
+                    {
+                        label: 'With Battery',
+                        data: [0.64, 0.32, 0.42, 0.32],
+                        backgroundColor: 'rgba(74, 222, 128, 0.8)',
+                        borderRadius: 4,
+                        barPercentage: 0.6,
+                        categoryPercentage: 0.8
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': $' + context.raw.toFixed(2);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            display: false
+                        },
+                        ticks: {
+                            color: '#a0a0b0',
+                            font: {
+                                size: 10
+                            },
+                            maxRotation: 0
+                        }
+                    },
+                    y: {
+                        grid: {
+                            color: 'rgba(255, 255, 255, 0.05)'
+                        },
+                        ticks: {
+                            color: '#a0a0b0',
+                            callback: function(value) {
+                                return '$' + value.toFixed(2);
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: '$/hr',
+                            color: '#6b6b7b',
+                            font: {
+                                size: 10
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Temperature Chart
+        let tempChart = null;
+        function initTempChart() {
+            if (tempChart) return;
+
+            const ctx = document.getElementById('tempChart').getContext('2d');
+            const labels = [];
+            const indoorData = [];
+            const targetData = [];
+            const outdoorData = [];
+
+            // Generate 24 hours of mock data
+            for (let i = 0; i < 24; i++) {
+                labels.push(i + ':00');
+                targetData.push(74);
+                indoorData.push(70 + Math.sin(i / 4) * 3 + Math.random() * 2);
+                outdoorData.push(32 + Math.sin((i - 6) / 4) * 8);
+            }
+
+            tempChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Indoor',
+                            data: indoorData,
+                            borderColor: '#e94560',
+                            backgroundColor: 'rgba(233, 69, 96, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Target',
+                            data: targetData,
+                            borderColor: '#60a5fa',
+                            borderDash: [5, 5],
+                            fill: false,
+                            tension: 0,
+                            pointRadius: 0
+                        },
+                        {
+                            label: 'Outdoor',
+                            data: outdoorData,
+                            borderColor: '#4ade80',
+                            fill: false,
+                            tension: 0.4,
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: '#a0a0b0',
+                                usePointStyle: true,
+                                padding: 16,
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#6b6b7b',
+                                maxTicksLimit: 6,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)'
+                            },
+                            ticks: {
+                                color: '#6b6b7b',
+                                callback: function(value) {
+                                    return value + 'Â°';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Power Usage Chart
+        let powerChart = null;
+        function initPowerChart() {
+            if (powerChart) return;
+
+            const ctx = document.getElementById('powerChart').getContext('2d');
+            const labels = [];
+            const powerData = [];
+
+            // Generate mock power data
+            for (let i = 0; i < 24; i++) {
+                labels.push(i + ':00');
+                // Power cycles on/off, higher during cold parts of day
+                const baseLoad = (i >= 0 && i < 8) ? 1200 : (i >= 12 && i < 18) ? 600 : 900;
+                powerData.push(baseLoad + Math.random() * 300 * (Math.random() > 0.3 ? 1 : 0));
+            }
+
+            powerChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Power (W)',
+                        data: powerData,
+                        backgroundColor: function(context) {
+                            const index = context.dataIndex;
+                            if (index >= 0 && index < 8) return 'rgba(74, 222, 128, 0.7)'; // Off-peak
+                            if (index >= 12 && index < 18) return 'rgba(239, 68, 68, 0.7)'; // Super-peak
+                            return 'rgba(251, 191, 36, 0.7)'; // Peak
+                        },
+                        borderRadius: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#6b6b7b',
+                                maxTicksLimit: 6,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.05)'
+                            },
+                            ticks: {
+                                color: '#6b6b7b',
+                                callback: function(value) {
+                                    return value + 'W';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
