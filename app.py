@@ -445,7 +445,6 @@ async function loadStatus() {
         // Update control buttons
         document.getElementById('btn-power').classList.toggle('active', s.power);
         document.getElementById('btn-oscillate').classList.toggle('active', s.oscillation);
-        document.getElementById('btn-display').classList.toggle('active', s.display);
 
         // Mock savings (TODO: calculate from actual data)
         document.getElementById('savings-today').textContent = '$2.90';
@@ -531,13 +530,6 @@ document.getElementById('btn-oscillate').onclick = async function() {
     } finally { this.disabled = false; }
 };
 
-document.getElementById('btn-display').onclick = async function() {
-    this.disabled = true;
-    try {
-        await fetch('/api/display/toggle', { method: 'POST' });
-        await loadStatus();
-    } finally { this.disabled = false; }
-};
 
 document.getElementById('temp-up').onclick = async function() {
     currentTarget = Math.min(95, currentTarget + 1);
