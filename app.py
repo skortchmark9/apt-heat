@@ -16,8 +16,9 @@ from zoneinfo import ZoneInfo
 # Timezone for sleep schedule (user's local time)
 LOCAL_TZ = ZoneInfo("America/New_York")
 
+from pathlib import Path
 from fastapi import FastAPI, Depends, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
@@ -244,10 +245,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Heater Monitor", lifespan=lifespan)
 
+# Frontend build directory
+FRONTEND_DIR = Path(__file__).parent / "frontend" / "dist"
+
+# Mount static assets if frontend is built
+if (FRONTEND_DIR / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="static")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    """Serve the dashboard."""
+    """Serve the React dashboard."""
+    index_path = FRONTEND_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    # Fallback to legacy inline HTML if React build doesn't exist
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
