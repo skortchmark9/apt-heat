@@ -213,6 +213,40 @@ async def dashboard():
         .chart-btn.active { background: var(--purple); color: white; }
         canvas { max-height: 200px; }
 
+        /* Sleep Mode Modal */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        .modal-overlay.open { opacity: 1; pointer-events: auto; }
+        .modal { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 428px; background: white; border-radius: 24px 24px 0 0; z-index: 101; transform: translateX(-50%) translateY(100%); transition: transform 0.3s ease; max-height: 85vh; overflow-y: auto; }
+        .modal-overlay.open .modal { transform: translateX(-50%) translateY(0); }
+        .modal-header { padding: 1.5rem; border-bottom: 1px solid var(--gray-200); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: white; z-index: 1; }
+        .modal-title { font-size: 1.25rem; font-weight: 700; }
+        .modal-close { width: 32px; height: 32px; border-radius: 50%; border: none; background: var(--gray-100); font-size: 1.25rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+        .modal-body { padding: 1.5rem; }
+
+        /* Wake Time Wheel */
+        .wake-section { margin-bottom: 2rem; }
+        .wake-label { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--gray-500); margin-bottom: 0.75rem; }
+        .scroll-wheel-container { position: relative; height: 150px; overflow: hidden; background: var(--gray-50); border-radius: 16px; }
+        .scroll-wheel-highlight { position: absolute; top: 50%; left: 1rem; right: 1rem; height: 50px; transform: translateY(-50%); background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); z-index: 1; }
+        .scroll-wheel { height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory; -webkit-overflow-scrolling: touch; padding: 50px 1.5rem; position: relative; z-index: 2; }
+        .scroll-wheel::-webkit-scrollbar { display: none; }
+        .time-item { height: 50px; scroll-snap-align: center; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 600; color: var(--gray-400); transition: all 0.2s ease; }
+        .time-item.active { color: var(--gray-900); }
+
+        /* Curve Editor */
+        .curve-section { margin-bottom: 1.5rem; }
+        .curve-container { background: var(--gray-50); border-radius: 16px; padding: 1rem; position: relative; }
+        .curve-canvas { width: 100%; height: 200px; border-radius: 8px; touch-action: none; cursor: crosshair; }
+        .curve-labels { display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: 0.625rem; color: var(--gray-400); text-transform: uppercase; }
+        .curve-temps { position: absolute; left: 0.5rem; top: 1rem; bottom: 2.5rem; display: flex; flex-direction: column; justify-content: space-between; font-size: 0.625rem; color: var(--gray-400); }
+        .curve-info { display: flex; gap: 1rem; margin-top: 1rem; }
+        .curve-stat { flex: 1; text-align: center; padding: 0.75rem; background: white; border-radius: 8px; }
+        .curve-stat-value { font-size: 1.25rem; font-weight: 700; color: var(--purple); }
+        .curve-stat-label { font-size: 0.625rem; color: var(--gray-500); margin-top: 0.25rem; }
+
+        .sleep-start-btn { width: 100%; padding: 1rem; border-radius: 12px; border: none; background: var(--purple); color: white; font-size: 1rem; font-weight: 600; cursor: pointer; margin-top: 1rem; }
+        .sleep-start-btn:active { transform: scale(0.98); }
+
         .stats-row { display: flex; gap: 0.75rem; padding: 1.5rem; }
         .stat-card { flex: 1; background: var(--gray-50); border-radius: 12px; padding: 1rem; text-align: center; }
         .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--green); }
@@ -282,7 +316,7 @@ async def dashboard():
         <div class="heater-controls">
             <button class="control-btn" id="btn-power"><span class="control-icon">⚡</span><span>Power</span></button>
             <button class="control-btn" id="btn-oscillate"><span class="control-icon">🌀</span><span>Oscillate</span></button>
-            <button class="control-btn" id="btn-display"><span class="control-icon">💡</span><span>Display</span></button>
+            <button class="control-btn" id="btn-sleep"><span class="control-icon">🌙</span><span>Sleep</span></button>
         </div>
     </div>
 
@@ -310,6 +344,54 @@ async def dashboard():
         <a href="#" class="nav-item"><span class="nav-icon">📅</span><span>Schedule</span></a>
         <a href="#" class="nav-item"><span class="nav-icon">⚙️</span><span>Settings</span></a>
     </nav>
+
+    <!-- Sleep Mode Modal -->
+    <div class="modal-overlay" id="sleep-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">Sleep Mode</div>
+                <button class="modal-close" id="sleep-close">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="wake-section">
+                    <div class="wake-label">Wake Time</div>
+                    <div class="scroll-wheel-container">
+                        <div class="scroll-wheel-highlight"></div>
+                        <div class="scroll-wheel" id="wake-wheel"></div>
+                    </div>
+                </div>
+
+                <div class="curve-section">
+                    <div class="wake-label">Temperature Curve</div>
+                    <div class="curve-container">
+                        <div class="curve-temps"><span>75°</span><span>70°</span><span>65°</span></div>
+                        <canvas class="curve-canvas" id="curve-canvas"></canvas>
+                        <div class="curve-labels">
+                            <span>Now</span>
+                            <span>Midnight</span>
+                            <span>Wake</span>
+                        </div>
+                    </div>
+                    <div class="curve-info">
+                        <div class="curve-stat">
+                            <div class="curve-stat-value" id="curve-start">70°</div>
+                            <div class="curve-stat-label">Start</div>
+                        </div>
+                        <div class="curve-stat">
+                            <div class="curve-stat-value" id="curve-min">66°</div>
+                            <div class="curve-stat-label">Lowest</div>
+                        </div>
+                        <div class="curve-stat">
+                            <div class="curve-stat-value" id="curve-wake">72°</div>
+                            <div class="curve-stat-label">Wake</div>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="sleep-start-btn" id="sleep-start">Start Sleep Mode</button>
+            </div>
+        </div>
+    </div>
 
 <script>
 let tempChart;
@@ -482,6 +564,205 @@ loadChart(24);
 setInterval(loadStatus, 30000);
 setInterval(loadOutdoor, 60000);
 setInterval(() => loadChart(currentHours), 60000);
+
+// ===== SLEEP MODE =====
+const sleepModal = document.getElementById('sleep-modal');
+const wakeWheel = document.getElementById('wake-wheel');
+const curveCanvas = document.getElementById('curve-canvas');
+let curveCtx, curvePoints = [];
+let selectedWakeTime = '7:00 AM';
+
+// Generate wake times
+const wakeTimes = [];
+for (let h = 5; h <= 11; h++) {
+    wakeTimes.push(`${h}:00 AM`);
+    wakeTimes.push(`${h}:30 AM`);
+}
+wakeTimes.forEach((t, i) => {
+    const div = document.createElement('div');
+    div.className = 'time-item' + (t === '7:00 AM' ? ' active' : '');
+    div.textContent = t;
+    div.dataset.time = t;
+    wakeWheel.appendChild(div);
+});
+
+// Scroll wheel behavior
+wakeWheel.addEventListener('scroll', () => {
+    const items = wakeWheel.querySelectorAll('.time-item');
+    const wheelRect = wakeWheel.getBoundingClientRect();
+    const centerY = wheelRect.top + wheelRect.height / 2;
+    let closest = null, closestDist = Infinity;
+    items.forEach(item => {
+        const rect = item.getBoundingClientRect();
+        const dist = Math.abs(centerY - (rect.top + rect.height / 2));
+        if (dist < closestDist) { closestDist = dist; closest = item; }
+    });
+    items.forEach(i => i.classList.remove('active'));
+    if (closest) { closest.classList.add('active'); selectedWakeTime = closest.dataset.time; }
+});
+
+// Open/close modal
+document.getElementById('btn-sleep').onclick = () => {
+    sleepModal.classList.add('open');
+    initCurve();
+    setTimeout(() => {
+        const active = wakeWheel.querySelector('.time-item.active');
+        if (active) active.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }, 100);
+};
+document.getElementById('sleep-close').onclick = () => sleepModal.classList.remove('open');
+sleepModal.onclick = (e) => { if (e.target === sleepModal) sleepModal.classList.remove('open'); };
+
+// Curve drawing
+function initCurve() {
+    const canvas = curveCanvas;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * 2;
+    canvas.height = rect.height * 2;
+    curveCtx = canvas.getContext('2d');
+    curveCtx.scale(2, 2);
+
+    // Default curve: start warm, dip, warm up
+    const w = rect.width, h = rect.height;
+    curvePoints = [
+        { x: 0, y: h * 0.3 },           // Start: 70°
+        { x: w * 0.2, y: h * 0.4 },     // Cooling
+        { x: w * 0.5, y: h * 0.7 },     // Lowest: 66°
+        { x: w * 0.8, y: h * 0.5 },     // Warming
+        { x: w, y: h * 0.2 }            // Wake: 72°
+    ];
+    drawCurve();
+}
+
+function drawCurve() {
+    const canvas = curveCanvas;
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width, h = rect.height;
+    const ctx = curveCtx;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Grid
+    ctx.strokeStyle = '#E5E7EB';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, h * i / 4);
+        ctx.lineTo(w, h * i / 4);
+        ctx.stroke();
+    }
+
+    // Gradient fill
+    const gradient = ctx.createLinearGradient(0, 0, 0, h);
+    gradient.addColorStop(0, 'rgba(139, 92, 246, 0.3)');
+    gradient.addColorStop(1, 'rgba(139, 92, 246, 0.05)');
+
+    // Draw smooth curve
+    ctx.beginPath();
+    ctx.moveTo(curvePoints[0].x, curvePoints[0].y);
+    for (let i = 1; i < curvePoints.length; i++) {
+        const prev = curvePoints[i - 1];
+        const curr = curvePoints[i];
+        const cpx = (prev.x + curr.x) / 2;
+        ctx.quadraticCurveTo(prev.x, prev.y, cpx, (prev.y + curr.y) / 2);
+    }
+    ctx.quadraticCurveTo(curvePoints[curvePoints.length - 2].x, curvePoints[curvePoints.length - 2].y, curvePoints[curvePoints.length - 1].x, curvePoints[curvePoints.length - 1].y);
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Draw line
+    ctx.beginPath();
+    ctx.moveTo(curvePoints[0].x, curvePoints[0].y);
+    for (let i = 1; i < curvePoints.length; i++) {
+        const prev = curvePoints[i - 1];
+        const curr = curvePoints[i];
+        const cpx = (prev.x + curr.x) / 2;
+        ctx.quadraticCurveTo(prev.x, prev.y, cpx, (prev.y + curr.y) / 2);
+    }
+    ctx.quadraticCurveTo(curvePoints[curvePoints.length - 2].x, curvePoints[curvePoints.length - 2].y, curvePoints[curvePoints.length - 1].x, curvePoints[curvePoints.length - 1].y);
+    ctx.strokeStyle = '#8B5CF6';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Draw control points
+    curvePoints.forEach((p, i) => {
+        if (i === 0 || i === curvePoints.length - 1) return; // Don't show endpoints
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = '#8B5CF6';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+    });
+
+    updateCurveStats();
+}
+
+function updateCurveStats() {
+    const rect = curveCanvas.getBoundingClientRect();
+    const h = rect.height;
+    const yToTemp = (y) => Math.round(75 - (y / h) * 10);
+    const temps = curvePoints.map(p => yToTemp(p.y));
+    document.getElementById('curve-start').textContent = temps[0] + '°';
+    document.getElementById('curve-min').textContent = Math.min(...temps) + '°';
+    document.getElementById('curve-wake').textContent = temps[temps.length - 1] + '°';
+}
+
+// Drag points
+let draggingPoint = null;
+curveCanvas.addEventListener('pointerdown', (e) => {
+    const rect = curveCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    for (let i = 1; i < curvePoints.length - 1; i++) {
+        const p = curvePoints[i];
+        if (Math.hypot(p.x - x, p.y - y) < 20) {
+            draggingPoint = i;
+            curveCanvas.setPointerCapture(e.pointerId);
+            return;
+        }
+    }
+    // If not on a point, add one or move nearest
+    let nearestDist = Infinity, nearestIdx = -1;
+    for (let i = 1; i < curvePoints.length - 1; i++) {
+        const dist = Math.abs(curvePoints[i].x - x);
+        if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
+    }
+    if (nearestIdx >= 0) {
+        curvePoints[nearestIdx].y = Math.max(10, Math.min(rect.height - 10, y));
+        drawCurve();
+    }
+});
+
+curveCanvas.addEventListener('pointermove', (e) => {
+    if (draggingPoint === null) return;
+    const rect = curveCanvas.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    curvePoints[draggingPoint].y = Math.max(10, Math.min(rect.height - 10, y));
+    drawCurve();
+});
+
+curveCanvas.addEventListener('pointerup', () => { draggingPoint = null; });
+curveCanvas.addEventListener('pointercancel', () => { draggingPoint = null; });
+
+// Start sleep mode
+document.getElementById('sleep-start').onclick = async () => {
+    const rect = curveCanvas.getBoundingClientRect();
+    const yToTemp = (y) => Math.round(75 - (y / rect.height) * 10);
+    const schedule = curvePoints.map((p, i) => ({
+        progress: p.x / rect.width,
+        temp: yToTemp(p.y)
+    }));
+    console.log('Sleep schedule:', { wakeTime: selectedWakeTime, schedule });
+    // TODO: Send to API
+    sleepModal.classList.remove('open');
+    alert(`Sleep mode set! Wake time: ${selectedWakeTime}`);
+};
 </script>
 </body>
 </html>"""
