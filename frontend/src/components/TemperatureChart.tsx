@@ -40,47 +40,31 @@ export function TemperatureChart({ readings, hours, onHoursChange }: Temperature
   };
 
   return (
-    <div className="chart-section" style={{ background: '#F9FAFB', padding: '1.5rem', margin: 0 }}>
-      <div
-        className="section-header"
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}
-      >
-        <span
-          className="section-title"
-          style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6B7280' }}
-        >
+    <div className="bg-gray-50 p-6 m-0">
+      <div className="flex justify-between items-center mb-4">
+        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
           Temperature History
         </span>
       </div>
 
-      <div className="chart-controls" style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+      <div className="flex gap-2 mt-4">
         {HOUR_OPTIONS.map((opt) => (
           <button
             key={opt.value}
-            className="chart-btn"
             data-hours={opt.value}
             onClick={() => onHoursChange(opt.value)}
-            style={{
-              flex: 1,
-              padding: '0.5rem',
-              borderRadius: '8px',
-              border: 'none',
-              background: hours === opt.value ? '#8B5CF6' : '#F3F4F6',
-              color: hours === opt.value ? 'white' : '#4B5563',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              cursor: 'pointer'
-            }}
+            className={`flex-1 py-2 rounded-lg border-none text-xs font-semibold cursor-pointer ${
+              hours === opt.value
+                ? 'bg-purple-500 text-white'
+                : 'bg-gray-100 text-gray-600'
+            }`}
           >
             {opt.label}
           </button>
         ))}
       </div>
 
-      <div
-        className="chart-container"
-        style={{ background: 'white', borderRadius: '16px', padding: '1rem', marginTop: '1rem' }}
-      >
+      <div className="bg-white rounded-2xl p-4 mt-4">
         <ResponsiveContainer width="100%" height={200}>
           <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
             <defs>

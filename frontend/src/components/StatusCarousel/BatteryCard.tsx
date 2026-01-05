@@ -5,57 +5,21 @@ export function BatteryCard() {
   const status = 'Not connected';
 
   return (
-    <div
-      className="status-card battery-card"
-      style={{
-        flex: '0 0 100%',
-        scrollSnapAlign: 'start',
-        background: 'linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%)',
-        borderRadius: '16px',
-        padding: '0.875rem 1rem',
-        color: 'white',
-        boxShadow: '0 4px 20px rgba(59, 130, 246, 0.3)'
-      }}
-    >
-      <div
-        className="status-top"
-        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}
-      >
-        <div
-          className="status-icon"
-          style={{
-            width: '32px',
-            height: '32px',
-            background: 'rgba(255,255,255,0.2)',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.125rem'
-          }}
-        >
+    <div className="flex-[0_0_100%] snap-start bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl py-3.5 px-4 text-white shadow-[0_4px_20px_rgba(59,130,246,0.3)]">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-lg">
           🔋
         </div>
-        <div className="status-text">
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>Battery Status</h3>
-          <p style={{ fontSize: '0.75rem', opacity: 0.9, margin: 0 }}>EcoFlow DELTA Pro</p>
+        <div>
+          <h3 className="text-base font-semibold m-0">Battery Status</h3>
+          <p className="text-xs opacity-90 m-0">EcoFlow DELTA Pro</p>
         </div>
       </div>
-      <div
-        className="battery-visual"
-        style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.5rem' }}
-      >
-        <div
-          id="battery-percent"
-          className="battery-big-percent"
-          style={{ fontSize: '2.5rem', fontWeight: 700 }}
-        >
+      <div className="flex items-center gap-4 mt-2">
+        <div id="battery-percent" className="text-[2.5rem] font-bold">
           {batteryPercent}%
         </div>
-        <div
-          className="battery-details"
-          style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.875rem', opacity: 0.9 }}
-        >
+        <div className="flex flex-col gap-1 text-sm opacity-90">
           <span id="battery-power">{power}</span>
           <span id="battery-status">{status}</span>
         </div>

@@ -1206,13 +1206,19 @@ document.getElementById('sleep-start').onclick = async () => {
 @app.get("/api/readings")
 async def get_readings(
     hours: int = Query(default=24, ge=1, le=168),
+    max_points: int = Query(default=200, ge=10, le=1000),
     db: Session = Depends(get_db)
 ):
-    """Get historical readings."""
+    """Get historical readings, downsampled for charting."""
     since = datetime.utcnow() - timedelta(hours=hours)
     readings = db.query(HeaterReading).filter(
         HeaterReading.timestamp >= since
     ).order_by(HeaterReading.timestamp).all()
+
+    # Downsample if we have too many points
+    if len(readings) > max_points:
+        step = len(readings) / max_points
+        readings = [readings[int(i * step)] for i in range(max_points)]
 
     return [
         {

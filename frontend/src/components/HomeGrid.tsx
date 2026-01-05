@@ -44,108 +44,48 @@ export function HomeGrid({
     powerStatus = 'Off';
   }
 
-  const buttonBaseStyle = {
-    flex: 1,
-    padding: '0.625rem',
-    borderRadius: '12px',
-    border: 'none',
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    gap: '0.25rem'
-  };
+  const controlBtnBase = 'flex-1 py-2.5 rounded-xl border-none text-xs font-semibold cursor-pointer flex flex-col items-center gap-1';
 
   return (
-    <div className="section" style={{ padding: '1rem 1.25rem' }}>
-      <div
-        className="section-header"
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}
-      >
-        <span
-          className="section-title"
-          style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6B7280' }}
-        >
+    <div className="px-5 py-4">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
           Your Home
         </span>
       </div>
 
-      <div
-        className="home-grid"
-        style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}
-      >
+      <div className="grid grid-cols-2 gap-2 mb-2">
         {/* Main Temperature Card */}
-        <div
-          className="home-card main"
-          style={{
-            gridColumn: '1 / -1',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            background: 'linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%)',
-            borderRadius: '16px',
-            padding: '1rem 1.25rem'
-          }}
-        >
+        <div className="col-span-2 flex justify-between items-center bg-gradient-to-br from-amber-100 to-amber-200 rounded-2xl px-5 py-4">
           <div>
-            <div className="home-card-label" style={{ fontSize: '0.75rem', color: '#6B7280', marginBottom: '0.25rem' }}>
-              Inside
-            </div>
-            <div id="current-temp" className="home-card-value" style={{ fontSize: '2rem', fontWeight: 700, color: '#111827' }}>
+            <div className="text-xs text-gray-500 mb-1">Inside</div>
+            <div id="current-temp" className="text-[2rem] font-bold text-gray-900">
               {currentTemp !== null ? `${currentTemp}°` : '--°'}
             </div>
-            <div id="temp-status" className="home-card-sub" style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: '0.25rem' }}>
+            <div id="temp-status" className="text-xs text-gray-500 mt-1">
               {tempStatus}
             </div>
           </div>
-          <div className="temp-controls" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div className="flex items-center gap-4">
             <button
               id="temp-down"
-              className="temp-btn"
               onClick={onTempDown}
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '50%',
-                border: '2px solid #111827',
-                background: 'white',
-                fontSize: '1.5rem',
-                fontWeight: 300,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
+              className="w-11 h-11 rounded-full border-2 border-gray-900 bg-white text-2xl font-light cursor-pointer flex items-center justify-center"
             >
               −
             </button>
-            <div className="target-display" style={{ textAlign: 'center' }}>
-              <div className="target-label" style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#6B7280' }}>
+            <div className="text-center">
+              <div className="text-[0.625rem] uppercase tracking-wider text-gray-500">
                 Target
               </div>
-              <div id="target-temp" className="target-value" style={{ fontSize: '1.75rem', fontWeight: 700 }}>
+              <div id="target-temp" className="text-[1.75rem] font-bold">
                 {targetTemp}°
               </div>
             </div>
             <button
               id="temp-up"
-              className="temp-btn"
               onClick={onTempUp}
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '50%',
-                border: '2px solid #111827',
-                background: 'white',
-                fontSize: '1.5rem',
-                fontWeight: 300,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
+              className="w-11 h-11 rounded-full border-2 border-gray-900 bg-white text-2xl font-light cursor-pointer flex items-center justify-center"
             >
               +
             </button>
@@ -153,71 +93,52 @@ export function HomeGrid({
         </div>
 
         {/* Outside Card */}
-        <div className="home-card" style={{ background: '#F9FAFB', borderRadius: '16px', padding: '1rem' }}>
-          <div className="home-card-label" style={{ fontSize: '0.75rem', color: '#6B7280', marginBottom: '0.25rem' }}>
-            Outside
-          </div>
-          <div id="outdoor-temp" className="home-card-value small" style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827' }}>
+        <div className="bg-gray-50 rounded-2xl p-4">
+          <div className="text-xs text-gray-500 mb-1">Outside</div>
+          <div id="outdoor-temp" className="text-2xl font-bold text-gray-900">
             {outdoorTemp !== null ? `${outdoorTemp}°` : '--°'}
           </div>
-          <div id="outdoor-feels" className="home-card-sub" style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: '0.25rem' }}>
+          <div id="outdoor-feels" className="text-xs text-gray-500 mt-1">
             {outdoorTemp !== null ? 'Current' : '--'}
           </div>
         </div>
 
         {/* Power Card */}
-        <div className="home-card" style={{ background: '#F9FAFB', borderRadius: '16px', padding: '1rem' }}>
-          <div className="home-card-label" style={{ fontSize: '0.75rem', color: '#6B7280', marginBottom: '0.25rem' }}>
-            Power
-          </div>
-          <div id="power-watts" className="home-card-value small" style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827' }}>
+        <div className="bg-gray-50 rounded-2xl p-4">
+          <div className="text-xs text-gray-500 mb-1">Power</div>
+          <div id="power-watts" className="text-2xl font-bold text-gray-900">
             {powerWatts}W
           </div>
-          <div id="power-status" className="home-card-sub" style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: '0.25rem' }}>
+          <div id="power-status" className="text-xs text-gray-500 mt-1">
             {powerStatus}
           </div>
         </div>
       </div>
 
       {/* Heater Controls */}
-      <div className="heater-controls" style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+      <div className="flex gap-2 mt-2">
         <button
           id="btn-power"
-          className="control-btn"
           onClick={onPowerToggle}
-          style={{
-            ...buttonBaseStyle,
-            background: isPowerOn ? '#111827' : '#F3F4F6',
-            color: isPowerOn ? 'white' : '#4B5563'
-          }}
+          className={`${controlBtnBase} ${isPowerOn ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}
         >
-          <span className="control-icon" style={{ fontSize: '1.125rem' }}>⚡</span>
+          <span className="text-lg">⚡</span>
           <span>Power</span>
         </button>
         <button
           id="btn-oscillate"
-          className="control-btn"
           onClick={onOscillateToggle}
-          style={{
-            ...buttonBaseStyle,
-            background: isOscillating ? '#111827' : '#F3F4F6',
-            color: isOscillating ? 'white' : '#4B5563'
-          }}
+          className={`${controlBtnBase} ${isOscillating ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}
         >
-          <span className="control-icon" style={{ fontSize: '1.125rem' }}>🌀</span>
+          <span className="text-lg">🌀</span>
           <span>Oscillate</span>
         </button>
         <button
           id="btn-sleep"
-          className="control-btn"
           onClick={onSleepClick}
-          style={{
-            ...buttonBaseStyle,
-            background: sleepActive ? '#111827' : '#F3F4F6',
-            color: sleepActive ? 'white' : '#4B5563'
-          }}
+          className={`${controlBtnBase} ${sleepActive ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600'}`}
         >
-          <span className="control-icon" style={{ fontSize: '1.125rem' }}>🌙</span>
+          <span className="text-lg">🌙</span>
           <span>Sleep</span>
         </button>
       </div>

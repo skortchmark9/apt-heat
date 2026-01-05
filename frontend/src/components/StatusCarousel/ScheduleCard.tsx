@@ -7,64 +7,26 @@ export function ScheduleCard() {
   ];
 
   return (
-    <div
-      className="status-card schedule-card"
-      style={{
-        flex: '0 0 100%',
-        scrollSnapAlign: 'start',
-        background: 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
-        borderRadius: '16px',
-        padding: '0.875rem 1rem',
-        color: 'white',
-        boxShadow: '0 4px 20px rgba(139, 92, 246, 0.3)'
-      }}
-    >
-      <div
-        className="status-top"
-        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}
-      >
-        <div
-          className="status-icon"
-          style={{
-            width: '32px',
-            height: '32px',
-            background: 'rgba(255,255,255,0.2)',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.125rem'
-          }}
-        >
+    <div className="flex-[0_0_100%] snap-start bg-gradient-to-br from-purple-500 to-purple-700 rounded-2xl py-3.5 px-4 text-white shadow-[0_4px_20px_rgba(139,92,246,0.3)]">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-lg">
           📅
         </div>
-        <div className="status-text">
-          <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>Today's Schedule</h3>
-          <p style={{ fontSize: '0.75rem', opacity: 0.9, margin: 0 }}>Swipe to see events</p>
+        <div>
+          <h3 className="text-base font-semibold m-0">Today's Schedule</h3>
+          <p className="text-xs opacity-90 m-0">Swipe to see events</p>
         </div>
       </div>
-      <div
-        id="schedule-timeline"
-        className="schedule-timeline"
-        style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem', marginTop: '0.5rem' }}
-      >
+      <div id="schedule-timeline" className="flex flex-col gap-1.5 mt-2">
         {scheduleItems.map((item, i) => (
           <div
             key={i}
-            className={`timeline-item ${item.status}`}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              fontSize: '0.8125rem',
-              padding: '0.375rem 0.625rem',
-              borderRadius: '6px',
-              background: item.status === 'current' ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
-              opacity: item.status === 'past' ? 0.6 : 1
-            }}
+            className={`flex items-center gap-3 text-[0.8125rem] py-1.5 px-2.5 rounded-md ${
+              item.status === 'current' ? 'bg-white/25' : 'bg-white/10'
+            } ${item.status === 'past' ? 'opacity-60' : ''}`}
           >
-            <span className="time" style={{ fontWeight: 600, minWidth: '3rem' }}>{item.time}</span>
-            <span className="event" style={{ opacity: 0.9 }}>{item.event}</span>
+            <span className="font-semibold min-w-12">{item.time}</span>
+            <span className="opacity-90">{item.event}</span>
           </div>
         ))}
       </div>

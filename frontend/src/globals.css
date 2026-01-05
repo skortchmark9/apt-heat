@@ -1,16 +1,8 @@
 @import "tailwindcss";
 
-/* Reset */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 /* Root/HTML styling */
 html {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-  font-size: 16px;
   -webkit-font-smoothing: antialiased;
   background: #F9FAFB;
 }

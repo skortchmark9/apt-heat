@@ -6,37 +6,28 @@ interface StatsRowProps {
 
 export function StatsRow({ monthlySavings, dailyKwh, peakKwh }: StatsRowProps) {
   return (
-    <div className="stats-row" style={{ display: 'flex', gap: '0.75rem', padding: '1.5rem' }}>
-      <div
-        className="stat-card"
-        style={{ flex: 1, background: '#F9FAFB', borderRadius: '12px', padding: '1rem', textAlign: 'center' }}
-      >
-        <div id="stat-month" className="stat-value" style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10B981' }}>
+    <div className="flex gap-3 p-6">
+      <div className="flex-1 bg-gray-50 rounded-xl p-4 text-center">
+        <div id="stat-month" className="text-2xl font-bold text-emerald-500">
           ${monthlySavings.toFixed(0)}
         </div>
-        <div className="stat-label" style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: '0.25rem' }}>
+        <div className="text-xs text-gray-500 mt-1">
           This month
         </div>
       </div>
-      <div
-        className="stat-card"
-        style={{ flex: 1, background: '#F9FAFB', borderRadius: '12px', padding: '1rem', textAlign: 'center' }}
-      >
-        <div id="stat-energy" className="stat-value" style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10B981' }}>
+      <div className="flex-1 bg-gray-50 rounded-xl p-4 text-center">
+        <div id="stat-energy" className="text-2xl font-bold text-emerald-500">
           {dailyKwh.toFixed(1)}
         </div>
-        <div className="stat-label" style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: '0.25rem' }}>
+        <div className="text-xs text-gray-500 mt-1">
           kWh today
         </div>
       </div>
-      <div
-        className="stat-card"
-        style={{ flex: 1, background: '#F9FAFB', borderRadius: '12px', padding: '1rem', textAlign: 'center' }}
-      >
-        <div id="stat-events" className="stat-value" style={{ fontSize: '1.5rem', fontWeight: 700, color: '#10B981' }}>
+      <div className="flex-1 bg-gray-50 rounded-xl p-4 text-center">
+        <div id="stat-events" className="text-2xl font-bold text-emerald-500">
           {peakKwh.toFixed(1)}
         </div>
-        <div className="stat-label" style={{ fontSize: '0.75rem', color: '#6B7280', marginTop: '0.25rem' }}>
+        <div className="text-xs text-gray-500 mt-1">
           Peak kWh
         </div>
       </div>

@@ -12,19 +12,21 @@ export function CurrentStatusCard({ status, sleepSchedule, savings, onClick }: C
   const isHeating = status?.power && (status?.power_watts ?? 0) > 0;
   const isSleepActive = sleepSchedule?.active;
 
+  // Check if we're at target (within 1 degree)
+  const currentTemp = status?.current_temp_f ?? 0;
+  const targetTemp = status?.target_temp_f ?? 0;
+  const tempDiff = currentTemp - targetTemp;
+  const isAtTarget = Math.abs(tempDiff) <= 1;
+
   // Determine card style
-  let cardBackground = 'linear-gradient(135deg, #10B981 0%, #059669 100%)';
-  let cardShadow = '0 4px 20px rgba(16, 185, 129, 0.3)';
+  let cardClasses = 'from-emerald-500 to-emerald-600 shadow-[0_4px_20px_rgba(16,185,129,0.3)]';
 
   if (isSleepActive) {
-    cardBackground = 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)';
-    cardShadow = '0 4px 20px rgba(139, 92, 246, 0.3)';
+    cardClasses = 'from-purple-500 to-purple-700 shadow-[0_4px_20px_rgba(139,92,246,0.3)]';
   } else if (isOff) {
-    cardBackground = 'linear-gradient(135deg, #9CA3AF 0%, #6B7280 100%)';
-    cardShadow = '0 4px 20px rgba(107, 114, 128, 0.3)';
+    cardClasses = 'from-gray-400 to-gray-500 shadow-[0_4px_20px_rgba(107,114,128,0.3)]';
   } else if (isHeating) {
-    cardBackground = 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)';
-    cardShadow = '0 4px 20px rgba(245, 158, 11, 0.3)';
+    cardClasses = 'from-amber-500 to-amber-600 shadow-[0_4px_20px_rgba(245,158,11,0.3)]';
   }
 
   // Determine icon and text
@@ -38,6 +40,10 @@ export function CurrentStatusCard({ status, sleepSchedule, savings, onClick }: C
     const wakeDate = new Date(sleepSchedule.wake_time!);
     const wakeStr = wakeDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     subtitle = `Target: ${sleepSchedule.current_target}°F · Wake: ${wakeStr}`;
+  } else if (!status) {
+    icon = '⏳';
+    title = 'Loading...';
+    subtitle = 'Checking heater status';
   } else if (isOff) {
     icon = '⏸️';
     title = 'Heater is off';
@@ -46,10 +52,12 @@ export function CurrentStatusCard({ status, sleepSchedule, savings, onClick }: C
     icon = '🔥';
     title = 'Heating your home';
     subtitle = `Target: ${status?.target_temp_f ?? '--'}°F`;
-  } else if (!status) {
-    icon = '⏳';
-    title = 'Loading...';
-    subtitle = 'Checking heater status';
+  } else if (!isAtTarget) {
+    // Power on, not heating, but not at target yet
+    icon = '🔥';
+    title = tempDiff < 0 ? 'Heating to target' : 'Cooling down';
+    subtitle = `${currentTemp}°F → ${targetTemp}°F`;
+    cardClasses = 'from-amber-500 to-amber-600 shadow-[0_4px_20px_rgba(245,158,11,0.3)]';
   }
 
   const gridRate = savings?.current_rate ?? 0.35;
@@ -58,83 +66,43 @@ export function CurrentStatusCard({ status, sleepSchedule, savings, onClick }: C
   return (
     <div
       id="status-card"
-      className="status-card"
       onClick={onClick}
-      style={{
-        flex: '0 0 100%',
-        scrollSnapAlign: 'start',
-        background: cardBackground,
-        borderRadius: '16px',
-        padding: '0.875rem 1rem',
-        color: 'white',
-        boxShadow: cardShadow,
-        cursor: onClick ? 'pointer' : 'default'
-      }}
+      className={`flex-[0_0_100%] snap-start bg-gradient-to-br ${cardClasses} rounded-2xl py-3.5 px-4 text-white ${onClick ? 'cursor-pointer' : ''}`}
     >
-      <div
-        className="status-top"
-        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}
-      >
+      <div className="flex items-center gap-3 mb-2">
         <div
           id="status-icon"
-          className="status-icon"
-          style={{
-            width: '32px',
-            height: '32px',
-            background: 'rgba(255,255,255,0.2)',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.125rem'
-          }}
+          className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center text-lg"
         >
           {icon}
         </div>
-        <div className="status-text">
-          <h3 id="status-title" style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>
+        <div>
+          <h3 id="status-title" className="text-base font-semibold m-0">
             {title}
           </h3>
-          <p id="status-subtitle" style={{ fontSize: '0.75rem', opacity: 0.9, margin: 0 }}>
+          <p id="status-subtitle" className="text-xs opacity-90 m-0">
             {subtitle}
           </p>
         </div>
       </div>
-      <div
-        className="rate-comparison"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(255,255,255,0.15)',
-          borderRadius: '8px',
-          padding: '0.5rem 0.75rem'
-        }}
-      >
-        <div className="rate-item" style={{ textAlign: 'center' }}>
-          <div
-            className="rate-label"
-            style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.8 }}
-          >
+      <div className="flex items-center justify-between bg-white/15 rounded-lg py-2 px-3">
+        <div className="text-center">
+          <div className="text-[0.625rem] uppercase tracking-wider opacity-80">
             Grid rate
           </div>
           <div
             id="grid-rate"
-            className="rate-value crossed"
-            style={{ fontSize: '1.25rem', fontWeight: 700, textDecoration: 'line-through', opacity: 0.7 }}
+            className="text-xl font-bold line-through opacity-70"
           >
             ${gridRate.toFixed(2)}
           </div>
         </div>
-        <div className="rate-arrow" style={{ fontSize: '1.25rem', opacity: 0.6 }}>→</div>
-        <div className="rate-item" style={{ textAlign: 'center' }}>
-          <div
-            className="rate-label"
-            style={{ fontSize: '0.625rem', textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.8 }}
-          >
+        <div className="text-xl opacity-60">→</div>
+        <div className="text-center">
+          <div className="text-[0.625rem] uppercase tracking-wider opacity-80">
             You pay
           </div>
-          <div id="your-rate" className="rate-value" style={{ fontSize: '1.25rem', fontWeight: 700 }}>
+          <div id="your-rate" className="text-xl font-bold">
             ${offpeakRate.toFixed(2)}
           </div>
         </div>

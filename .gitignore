@@ -23,6 +23,9 @@ devices.json
 snapshot.json
 tinytuya.json
 
+# Local database
+heater.db
+
 # OS
 .DS_Store
 Thumbs.db

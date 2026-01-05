@@ -5,60 +5,21 @@ interface HeroProps {
 
 export function Hero({ savingsToday = 0, streakDays = null }: HeroProps) {
   return (
-    <div
-      className="hero"
-      style={{
-        background: 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
-        color: 'white',
-        padding: '1.5rem 1.5rem 1.25rem',
-        position: 'relative'
-      }}
-    >
-      <div
-        className="hero-top"
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          marginBottom: '0.5rem'
-        }}
-      >
-        <div className="hero-label" style={{ fontSize: '0.875rem', opacity: 0.9 }}>
-          Saved today
-        </div>
-        <div
-          className="streak-badge"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            background: 'rgba(255,255,255,0.2)',
-            padding: '0.375rem 0.75rem',
-            borderRadius: '100px',
-            fontSize: '0.75rem',
-            fontWeight: 600
-          }}
-        >
+    <div className="bg-gradient-to-br from-[#8B5CF6] to-[#6D28D9] text-white px-6 pt-6 pb-5 relative">
+      <div className="flex justify-between items-start mb-2">
+        <div className="text-[0.875rem] opacity-90">Saved today</div>
+        <div className="flex items-center gap-[0.375rem] bg-[rgba(255,255,255,0.2)] px-3 py-[0.375rem] rounded-full text-xs font-semibold">
           <span id="streak-count">{streakDays ?? '--'}</span>
           <span>day streak</span>
         </div>
       </div>
       <div
         id="savings-today"
-        className="hero-amount"
-        style={{
-          fontSize: '4rem',
-          fontWeight: 700,
-          letterSpacing: '-0.03em',
-          lineHeight: 1,
-          marginBottom: '0.25rem'
-        }}
+        className="text-[4rem] font-bold tracking-[-0.03em] leading-none mb-1"
       >
         ${savingsToday.toFixed(2)}
       </div>
-      <div className="hero-subtitle" style={{ fontSize: '1rem', opacity: 0.9 }}>
-        during peak hours
-      </div>
+      <div className="text-base opacity-90">during peak hours</div>
     </div>
   );
 }
