@@ -366,9 +366,11 @@ async def dashboard():
                     <div class="curve-container">
                         <div class="curve-temps"><span>75°</span><span>70°</span><span>65°</span></div>
                         <canvas class="curve-canvas" id="curve-canvas"></canvas>
-                        <div class="curve-labels">
+                        <div class="curve-labels" id="curve-labels">
                             <span>Now</span>
-                            <span>Midnight</span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
                             <span>Wake</span>
                         </div>
                     </div>
@@ -602,13 +604,52 @@ wakeWheel.addEventListener('scroll', () => {
         closest.classList.add('active');
         selectedWakeTime = closest.dataset.time;
         saveSleepSettings();
+        updateTimeLabels();
     }
 });
+
+// Update time labels on the curve
+function updateTimeLabels() {
+    const labels = document.querySelectorAll('#curve-labels span');
+    const now = new Date();
+
+    // Parse wake time (e.g., "7:30 AM")
+    const [timePart, ampm] = selectedWakeTime.split(' ');
+    const [hours, mins] = timePart.split(':').map(Number);
+    let wakeHour = hours;
+    if (ampm === 'PM' && hours !== 12) wakeHour += 12;
+    if (ampm === 'AM' && hours === 12) wakeHour = 0;
+
+    // Create wake time date (tomorrow if wake time is before current time)
+    const wake = new Date(now);
+    wake.setHours(wakeHour, mins, 0, 0);
+    if (wake <= now) wake.setDate(wake.getDate() + 1);
+
+    // Calculate duration in ms
+    const duration = wake - now;
+
+    // Format time helper
+    const formatTime = (date) => {
+        let h = date.getHours();
+        const m = date.getMinutes();
+        const suffix = h >= 12 ? 'pm' : 'am';
+        h = h % 12 || 12;
+        return m === 0 ? `${h}${suffix}` : `${h}:${m.toString().padStart(2,'0')}${suffix}`;
+    };
+
+    // Set labels at 0%, 25%, 50%, 75%, 100%
+    labels[0].textContent = formatTime(now);
+    labels[1].textContent = formatTime(new Date(now.getTime() + duration * 0.25));
+    labels[2].textContent = formatTime(new Date(now.getTime() + duration * 0.5));
+    labels[3].textContent = formatTime(new Date(now.getTime() + duration * 0.75));
+    labels[4].textContent = formatTime(wake);
+}
 
 // Open/close modal
 document.getElementById('btn-sleep').onclick = () => {
     sleepModal.classList.add('open');
     initCurve();
+    updateTimeLabels();
     setTimeout(() => {
         // Scroll to saved wake time
         const items = wakeWheel.querySelectorAll('.time-item');
