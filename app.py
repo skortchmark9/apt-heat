@@ -24,6 +24,69 @@ from heater import Heater
 
 load_dotenv()
 
+# Sleep schedule file
+SLEEP_SCHEDULE_FILE = "/tmp/sleep_schedule.json"
+
+
+def load_sleep_schedule():
+    """Load active sleep schedule from disk."""
+    try:
+        with open(SLEEP_SCHEDULE_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def save_sleep_schedule(schedule):
+    """Save sleep schedule to disk."""
+    with open(SLEEP_SCHEDULE_FILE, 'w') as f:
+        json.dump(schedule, f)
+
+
+def clear_sleep_schedule():
+    """Clear the sleep schedule."""
+    try:
+        os.remove(SLEEP_SCHEDULE_FILE)
+    except FileNotFoundError:
+        pass
+
+
+def get_sleep_target_temp():
+    """Get target temp based on current sleep schedule, or None if not in sleep mode."""
+    schedule = load_sleep_schedule()
+    if not schedule:
+        return None
+
+    now = datetime.now()
+    start = datetime.fromisoformat(schedule['start_time'])
+    wake = datetime.fromisoformat(schedule['wake_time'])
+
+    # Check if schedule is still valid
+    if now < start or now > wake:
+        clear_sleep_schedule()
+        return None
+
+    # Calculate progress (0.0 to 1.0)
+    total_duration = (wake - start).total_seconds()
+    elapsed = (now - start).total_seconds()
+    progress = elapsed / total_duration
+
+    # Interpolate temperature from curve points
+    points = schedule['curve']  # List of {progress: 0-1, temp: int}
+
+    # Find the two points we're between
+    for i in range(len(points) - 1):
+        if points[i]['progress'] <= progress <= points[i + 1]['progress']:
+            # Linear interpolation between these two points
+            p1, p2 = points[i], points[i + 1]
+            segment_progress = (progress - p1['progress']) / (p2['progress'] - p1['progress'])
+            temp = p1['temp'] + (p2['temp'] - p1['temp']) * segment_progress
+            return int(round(temp))
+
+    # Fallback to last point
+    return points[-1]['temp']
+
+
 # Database setup
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./heater.db")
 # Railway uses postgres:// but SQLAlchemy needs postgresql://
@@ -73,6 +136,14 @@ async def poll_heater():
         try:
             if heater is None:
                 heater = Heater(mode="cloud")
+
+            # Check sleep schedule and adjust target temp
+            sleep_target = get_sleep_target_temp()
+            if sleep_target is not None:
+                current_target = heater.get_target_temp()
+                if current_target != sleep_target:
+                    heater.set_target_temp(sleep_target)
+                    print(f"[{datetime.now()}] Sleep mode: adjusted target to {sleep_target}°F")
 
             status = heater.summary()
             outdoor_temp = get_outdoor_temp()
@@ -447,6 +518,19 @@ async function loadStatus() {
         // Update control buttons
         document.getElementById('btn-power').classList.toggle('active', s.power);
         document.getElementById('btn-oscillate').classList.toggle('active', s.oscillation);
+
+        // Check sleep mode status
+        const sleepRes = await fetch('/api/sleep');
+        const sleepStatus = sleepRes.ok ? await sleepRes.json() : {};
+        document.getElementById('btn-sleep').classList.toggle('active', sleepStatus.active);
+        if (sleepStatus.active) {
+            const wake = new Date(sleepStatus.wake_time);
+            const wakeStr = wake.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+            icon.textContent = '🌙';
+            title.textContent = 'Sleep mode active';
+            subtitle.textContent = `Target: ${sleepStatus.current_target}°F · Wake: ${wakeStr}`;
+            card.classList.remove('heating', 'off');
+        }
 
         // Mock savings (TODO: calculate from actual data)
         document.getElementById('savings-today').textContent = '$2.90';
@@ -831,14 +915,28 @@ curveCanvas.addEventListener('pointercancel', () => { draggingPoint = null; });
 document.getElementById('sleep-start').onclick = async () => {
     const rect = curveCanvas.getBoundingClientRect();
     const yToTemp = (y) => Math.round(75 - (y / rect.height) * 10);
-    const schedule = curvePoints.map((p, i) => ({
+    const curve = curvePoints.map((p, i) => ({
         progress: p.x / rect.width,
         temp: yToTemp(p.y)
     }));
-    console.log('Sleep schedule:', { wakeTime: selectedWakeTime, schedule });
-    // TODO: Send to API
-    sleepModal.classList.remove('open');
-    alert(`Sleep mode set! Wake time: ${selectedWakeTime}`);
+
+    try {
+        const res = await fetch('/api/sleep', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ wakeTime: selectedWakeTime, curve })
+        });
+        if (res.ok) {
+            sleepModal.classList.remove('open');
+            document.getElementById('btn-sleep').classList.add('active');
+            // Update status to show sleep mode
+            document.getElementById('status-icon').textContent = '🌙';
+            document.getElementById('status-title').textContent = 'Sleep mode active';
+            document.getElementById('status-subtitle').textContent = `Wake: ${selectedWakeTime}`;
+        }
+    } catch (e) {
+        console.error('Failed to start sleep mode:', e);
+    }
 };
 </script>
 </body>
@@ -931,3 +1029,58 @@ async def set_target(data: dict):
     temp = max(41, min(95, int(temp)))  # Clamp to valid range
     heater.set_target_temp(temp)
     return {"target_temp_f": temp}
+
+
+@app.post("/api/sleep")
+async def start_sleep_mode(data: dict):
+    """Start sleep mode with a temperature curve."""
+    # data: { wakeTime: "7:00 AM", curve: [{progress: 0-1, temp: int}, ...] }
+    wake_time_str = data.get("wakeTime", "7:00 AM")
+    curve = data.get("curve", [])
+
+    # Parse wake time
+    time_part, ampm = wake_time_str.split(' ')
+    hours, mins = map(int, time_part.split(':'))
+    if ampm == 'PM' and hours != 12:
+        hours += 12
+    if ampm == 'AM' and hours == 12:
+        hours = 0
+
+    now = datetime.now()
+    wake = now.replace(hour=hours, minute=mins, second=0, microsecond=0)
+    if wake <= now:
+        wake += timedelta(days=1)
+
+    schedule = {
+        "start_time": now.isoformat(),
+        "wake_time": wake.isoformat(),
+        "curve": curve
+    }
+    save_sleep_schedule(schedule)
+
+    return {"status": "ok", "wake_time": wake.isoformat()}
+
+
+@app.post("/api/sleep/cancel")
+async def cancel_sleep_mode():
+    """Cancel active sleep mode."""
+    clear_sleep_schedule()
+    return {"status": "ok"}
+
+
+@app.get("/api/sleep")
+async def get_sleep_status():
+    """Get current sleep mode status."""
+    schedule = load_sleep_schedule()
+    if not schedule:
+        return {"active": False}
+
+    target = get_sleep_target_temp()
+    if target is None:
+        return {"active": False}
+
+    return {
+        "active": True,
+        "wake_time": schedule["wake_time"],
+        "current_target": target
+    }
