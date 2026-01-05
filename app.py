@@ -614,14 +614,16 @@ function initCurve() {
     curveCtx = canvas.getContext('2d');
     curveCtx.scale(2, 2);
 
-    // Default curve: start warm, dip, warm up
+    // Default curve: bathtub shape - drop down, stay low, rise up
     const w = rect.width, h = rect.height;
     curvePoints = [
-        { x: 0, y: h * 0.3 },           // Start: 70°
-        { x: w * 0.2, y: h * 0.4 },     // Cooling
-        { x: w * 0.5, y: h * 0.7 },     // Lowest: 66°
-        { x: w * 0.8, y: h * 0.5 },     // Warming
-        { x: w, y: h * 0.2 }            // Wake: 72°
+        { x: 0, y: h * 0.25 },           // Start: ~72°
+        { x: w * 0.12, y: h * 0.5 },     // Quick drop
+        { x: w * 0.25, y: h * 0.75 },    // Bottom left
+        { x: w * 0.5, y: h * 0.75 },     // Bottom middle (flat)
+        { x: w * 0.75, y: h * 0.75 },    // Bottom right
+        { x: w * 0.88, y: h * 0.5 },     // Quick rise
+        { x: w, y: h * 0.25 }            // Wake: ~72°
     ];
     drawCurve();
 }
