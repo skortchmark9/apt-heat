@@ -238,9 +238,26 @@ async def dashboard():
         .hero-amount { font-size: 4rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1; margin-bottom: 0.25rem; }
         .hero-subtitle { font-size: 1rem; opacity: 0.9; }
 
-        .status-card { background: linear-gradient(135deg, var(--green) 0%, #059669 100%); margin: -1rem 1rem 0; border-radius: 16px; padding: 1rem 1.25rem; color: white; position: relative; z-index: 10; box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3); }
+        .status-carousel-container { margin: -1rem 1rem 0; position: relative; z-index: 10; }
+        .status-carousel { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 0.75rem; padding-bottom: 0.5rem; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+        .status-carousel::-webkit-scrollbar { display: none; }
+        .status-card { flex: 0 0 100%; scroll-snap-align: start; background: linear-gradient(135deg, var(--green) 0%, #059669 100%); border-radius: 16px; padding: 1rem 1.25rem; color: white; box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3); }
         .status-card.heating { background: linear-gradient(135deg, var(--orange) 0%, #D97706 100%); box-shadow: 0 4px 20px rgba(245, 158, 11, 0.3); }
         .status-card.off { background: linear-gradient(135deg, var(--gray-400) 0%, var(--gray-500) 100%); box-shadow: 0 4px 20px rgba(107, 114, 128, 0.3); }
+        .status-card.schedule-card { background: linear-gradient(135deg, var(--purple) 0%, var(--purple-dark) 100%); box-shadow: 0 4px 20px rgba(139, 92, 246, 0.3); }
+        .status-card.battery-card { background: linear-gradient(135deg, #3B82F6 0%, #1D4ED8 100%); box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3); }
+        .carousel-dots { display: flex; justify-content: center; gap: 0.5rem; margin-top: 0.75rem; }
+        .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gray-200); transition: all 0.2s ease; }
+        .dot.active { width: 18px; border-radius: 3px; background: var(--purple); }
+        .schedule-timeline { display: flex; flex-direction: column; gap: 0.375rem; margin-top: 0.5rem; }
+        .timeline-item { display: flex; align-items: center; gap: 0.75rem; font-size: 0.8125rem; padding: 0.375rem 0.625rem; border-radius: 6px; background: rgba(255,255,255,0.1); }
+        .timeline-item.current { background: rgba(255,255,255,0.25); }
+        .timeline-item.past { opacity: 0.6; }
+        .timeline-item .time { font-weight: 600; min-width: 3rem; }
+        .timeline-item .event { opacity: 0.9; }
+        .battery-visual { display: flex; align-items: center; gap: 1rem; margin-top: 0.5rem; }
+        .battery-big-percent { font-size: 2.5rem; font-weight: 700; }
+        .battery-details { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.875rem; opacity: 0.9; }
         .status-top { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
         .status-icon { width: 36px; height: 36px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
         .status-text h3 { font-size: 1rem; font-weight: 600; }
@@ -340,18 +357,57 @@ async def dashboard():
         <div class="hero-subtitle">during peak hours</div>
     </div>
 
-    <div class="status-card" id="status-card">
-        <div class="status-top">
-            <div class="status-icon" id="status-icon">⏳</div>
-            <div class="status-text">
-                <h3 id="status-title">Loading...</h3>
-                <p id="status-subtitle">Checking heater status</p>
+    <div class="status-carousel-container">
+        <div class="status-carousel" id="status-carousel">
+            <div class="status-card" id="status-card">
+                <div class="status-top">
+                    <div class="status-icon" id="status-icon">⏳</div>
+                    <div class="status-text">
+                        <h3 id="status-title">Loading...</h3>
+                        <p id="status-subtitle">Checking heater status</p>
+                    </div>
+                </div>
+                <div class="rate-comparison">
+                    <div class="rate-item"><div class="rate-label">Grid rate</div><div class="rate-value crossed">$0.35</div></div>
+                    <div class="rate-arrow">→</div>
+                    <div class="rate-item"><div class="rate-label">You pay</div><div class="rate-value">$0.08</div></div>
+                </div>
+            </div>
+            <div class="status-card schedule-card">
+                <div class="status-top">
+                    <div class="status-icon">📅</div>
+                    <div class="status-text">
+                        <h3>Today's Schedule</h3>
+                        <p>Swipe to see events</p>
+                    </div>
+                </div>
+                <div class="schedule-timeline" id="schedule-timeline">
+                    <div class="timeline-item past"><span class="time">12am</span><span class="event">Off-peak charging</span></div>
+                    <div class="timeline-item current"><span class="time">Now</span><span class="event">Peak hours</span></div>
+                    <div class="timeline-item future"><span class="time">12am</span><span class="event">Off-peak begins</span></div>
+                </div>
+            </div>
+            <div class="status-card battery-card">
+                <div class="status-top">
+                    <div class="status-icon">🔋</div>
+                    <div class="status-text">
+                        <h3>Battery Status</h3>
+                        <p>EcoFlow DELTA Pro</p>
+                    </div>
+                </div>
+                <div class="battery-visual">
+                    <div class="battery-big-percent" id="battery-percent">--%</div>
+                    <div class="battery-details">
+                        <span id="battery-power">-- W</span>
+                        <span id="battery-status">Not connected</span>
+                    </div>
+                </div>
             </div>
         </div>
-        <div class="rate-comparison">
-            <div class="rate-item"><div class="rate-label">Grid rate</div><div class="rate-value crossed">$0.35</div></div>
-            <div class="rate-arrow">→</div>
-            <div class="rate-item"><div class="rate-label">You pay</div><div class="rate-value">$0.08</div></div>
+        <div class="carousel-dots">
+            <span class="dot active"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
         </div>
     </div>
 
@@ -642,6 +698,16 @@ loadChart(24);
 setInterval(loadStatus, 30000);
 setInterval(loadOutdoor, 60000);
 setInterval(() => loadChart(currentHours), 60000);
+
+// Carousel dots
+const carousel = document.getElementById('status-carousel');
+const dots = document.querySelectorAll('.carousel-dots .dot');
+carousel.addEventListener('scroll', () => {
+    const scrollLeft = carousel.scrollLeft;
+    const cardWidth = carousel.offsetWidth;
+    const activeIndex = Math.round(scrollLeft / cardWidth);
+    dots.forEach((dot, i) => dot.classList.toggle('active', i === activeIndex));
+});
 
 // ===== SLEEP MODE =====
 const sleepModal = document.getElementById('sleep-modal');
