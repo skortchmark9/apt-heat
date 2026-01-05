@@ -11,6 +11,10 @@ import urllib.request
 import json
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
+
+# Timezone for sleep schedule (user's local time)
+LOCAL_TZ = ZoneInfo("America/New_York")
 
 from fastapi import FastAPI, Depends, Query
 from fastapi.responses import HTMLResponse
@@ -120,9 +124,15 @@ def get_sleep_target_temp():
     if not schedule:
         return None
 
-    now = datetime.now()
+    now = datetime.now(LOCAL_TZ)
     start = datetime.fromisoformat(schedule['start_time'])
     wake = datetime.fromisoformat(schedule['wake_time'])
+
+    # Make times timezone-aware if they aren't already
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=LOCAL_TZ)
+    if wake.tzinfo is None:
+        wake = wake.replace(tzinfo=LOCAL_TZ)
 
     # Check if schedule is still valid
     if now < start or now > wake:
@@ -165,7 +175,12 @@ async def poll_heater():
                 current_target = heater.get_target_temp()
                 if current_target != sleep_target:
                     heater.set_target_temp(sleep_target)
-                    print(f"[{datetime.now()}] Sleep mode: adjusted target to {sleep_target}°F")
+                    print(f"[SLEEP] Adjusted target: {current_target}°F -> {sleep_target}°F")
+                else:
+                    # Log occasionally that sleep mode is running
+                    now = datetime.now(LOCAL_TZ)
+                    if now.minute % 10 == 0 and now.second < 10:
+                        print(f"[SLEEP] Active, target={sleep_target}°F (at {now.strftime('%I:%M %p')})")
 
             status = heater.summary()
             outdoor_temp = get_outdoor_temp()
@@ -1279,7 +1294,8 @@ async def start_sleep_mode(data: dict):
     if ampm == 'AM' and hours == 12:
         hours = 0
 
-    now = datetime.now()
+    # Use local timezone for sleep schedule
+    now = datetime.now(LOCAL_TZ)
     wake = now.replace(hour=hours, minute=mins, second=0, microsecond=0)
     if wake <= now:
         wake += timedelta(days=1)
@@ -1290,6 +1306,8 @@ async def start_sleep_mode(data: dict):
         "curve": curve
     }
     save_sleep_schedule(schedule)
+
+    print(f"[SLEEP] Started sleep mode: {now.strftime('%I:%M %p')} -> {wake.strftime('%I:%M %p %Z')}")
 
     return {"status": "ok", "wake_time": wake.isoformat()}
 
@@ -1312,10 +1330,16 @@ async def get_sleep_status():
     if target is None:
         return {"active": False}
 
-    # Calculate progress
-    now = datetime.now()
+    # Calculate progress using local timezone
+    now = datetime.now(LOCAL_TZ)
     start = datetime.fromisoformat(schedule['start_time'])
     wake = datetime.fromisoformat(schedule['wake_time'])
+
+    # Make times timezone-aware if needed
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=LOCAL_TZ)
+    if wake.tzinfo is None:
+        wake = wake.replace(tzinfo=LOCAL_TZ)
     total_duration = (wake - start).total_seconds()
     elapsed = (now - start).total_seconds()
     progress = min(1.0, max(0.0, elapsed / total_duration))
