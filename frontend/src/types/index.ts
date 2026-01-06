@@ -75,3 +75,16 @@ export interface StoredCurvePoint {
 }
 
 export type HeaterState = 'heating' | 'idle' | 'off';
+
+export interface BatteryStatus {
+  configured: boolean;
+  error?: string;
+  soc?: number;
+  watts_in?: number;
+  watts_out?: number;
+  charging?: boolean;
+  discharging?: boolean;
+  charge_limit?: number;
+  tou_period?: string;
+  charge_state?: string;
+}

@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 from models import Base, HeaterReading, SleepSchedule
 from heater import Heater
 from rates import calculate_savings_from_readings, get_tou_period, get_rate_for_period
+from ecoflow import EcoFlowBattery
 
 load_dotenv()
 
@@ -45,6 +46,10 @@ POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "60"))
 # Global heater instance (cloud mode for remote access)
 heater = None
 polling_task = None
+
+# Global EcoFlow battery instance
+battery = None
+battery_last_charge_state = None  # Track to avoid redundant API calls
 
 # Location for weather (10027 = NYC/Morningside Heights)
 WEATHER_LAT = float(os.getenv("WEATHER_LAT", "40.81"))
@@ -170,6 +175,87 @@ def get_sleep_target_temp():
     return points[-1]['temp']
 
 
+# =============================================================================
+# ECOFLOW BATTERY PEAK SHAVING
+# =============================================================================
+
+# Charging power settings
+BATTERY_CHARGE_WATTS = int(os.getenv("BATTERY_CHARGE_WATTS", "1800"))  # Off-peak charging rate
+BATTERY_PEAK_WATTS = 0  # During peak: stop charging from grid
+
+
+def control_battery_charging():
+    """
+    Control EcoFlow battery charging based on TOU period.
+
+    - Off-peak (midnight-8AM): Charge at BATTERY_CHARGE_WATTS
+    - Peak (8AM-midnight): Set to 0 to stop grid charging
+    """
+    global battery, battery_last_charge_state
+
+    # Initialize battery if needed
+    if battery is None:
+        battery = EcoFlowBattery()
+        if not battery.is_configured:
+            return None  # No battery configured
+
+    if not battery.is_configured:
+        return None
+
+    # Determine target charge rate based on TOU period
+    now = datetime.now(LOCAL_TZ)
+    period = get_tou_period(now)
+
+    if period == "off_peak":
+        target_watts = BATTERY_CHARGE_WATTS
+        target_state = "charging"
+    else:  # peak or super_peak
+        target_watts = BATTERY_PEAK_WATTS
+        target_state = "paused"
+
+    # Only send command if state changed (avoid API spam)
+    if target_state != battery_last_charge_state:
+        result = battery.set_ac_charging_power(target_watts)
+        if result.get("code") == "0":
+            print(f"[BATTERY] {period.upper()}: Set charge power to {target_watts}W ({target_state})")
+            battery_last_charge_state = target_state
+        else:
+            print(f"[BATTERY] Error setting charge power: {result}")
+
+    return target_state
+
+
+def get_battery_status():
+    """Get current battery status for API/dashboard."""
+    global battery
+
+    if battery is None:
+        battery = EcoFlowBattery()
+
+    if not battery.is_configured:
+        return {"configured": False}
+
+    status = battery.get_status()
+    if status.get("error"):
+        return {"configured": True, "error": status["error"]}
+
+    # Add TOU context
+    now = datetime.now(LOCAL_TZ)
+    period = get_tou_period(now)
+
+    return {
+        "configured": True,
+        "soc": status.get("soc"),
+        "watts_in": status.get("watts_in", 0),
+        "watts_out": status.get("watts_out", 0),
+        "charging": status.get("charging", False),
+        "discharging": status.get("discharging", False),
+        "charge_limit": status.get("ac_charge_watts"),
+        "tou_period": period,
+        "charge_state": battery_last_charge_state,
+    }
+
+
 async def poll_heater():
     """Background task to poll heater and store readings."""
     global heater
@@ -178,6 +264,9 @@ async def poll_heater():
         try:
             if heater is None:
                 heater = Heater(mode="cloud")
+
+            # Control battery charging based on TOU period
+            control_battery_charging()
 
             # Check sleep schedule and adjust target temp
             sleep_target = get_sleep_target_temp()
@@ -1259,6 +1348,12 @@ async def get_status():
     if heater is None:
         heater = Heater(mode="cloud")
     return heater.summary()
+
+
+@app.get("/api/battery")
+async def api_battery_status():
+    """Get current EcoFlow battery status."""
+    return get_battery_status()
 
 
 @app.post("/api/oscillation/toggle")
