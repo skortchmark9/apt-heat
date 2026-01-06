@@ -72,15 +72,18 @@ def get_db():
 
 
 def load_sleep_schedule():
-    """Load active sleep schedule from database."""
+    """Load active sleep schedule from database.
+
+    Times are stored as UTC. Returns ISO strings with Z suffix.
+    """
     db = SessionLocal()
     try:
         schedule = db.query(SleepSchedule).filter(SleepSchedule.id == 1).first()
         if not schedule or not schedule.start_time:
             return None
         return {
-            "start_time": schedule.start_time.isoformat(),
-            "wake_time": schedule.wake_time.isoformat(),
+            "start_time": schedule.start_time.isoformat() + "Z",
+            "wake_time": schedule.wake_time.isoformat() + "Z",
             "curve": json.loads(schedule.curve_json) if schedule.curve_json else []
         }
     finally:
@@ -88,19 +91,30 @@ def load_sleep_schedule():
 
 
 def save_sleep_schedule(schedule):
-    """Save sleep schedule to database."""
+    """Save sleep schedule to database.
+
+    Stores times as naive UTC.
+    """
     db = SessionLocal()
     try:
+        # Parse and convert to UTC for storage
+        start_dt = datetime.fromisoformat(schedule["start_time"].replace("Z", "+00:00"))
+        wake_dt = datetime.fromisoformat(schedule["wake_time"].replace("Z", "+00:00"))
+
+        # Strip timezone (already in UTC)
+        start_utc = start_dt.replace(tzinfo=None)
+        wake_utc = wake_dt.replace(tzinfo=None)
+
         existing = db.query(SleepSchedule).filter(SleepSchedule.id == 1).first()
         if existing:
-            existing.start_time = datetime.fromisoformat(schedule["start_time"])
-            existing.wake_time = datetime.fromisoformat(schedule["wake_time"])
+            existing.start_time = start_utc
+            existing.wake_time = wake_utc
             existing.curve_json = json.dumps(schedule["curve"])
         else:
             new_schedule = SleepSchedule(
                 id=1,
-                start_time=datetime.fromisoformat(schedule["start_time"]),
-                wake_time=datetime.fromisoformat(schedule["wake_time"]),
+                start_time=start_utc,
+                wake_time=wake_utc,
                 curve_json=json.dumps(schedule["curve"])
             )
             db.add(new_schedule)
@@ -125,15 +139,10 @@ def get_sleep_target_temp():
     if not schedule:
         return None
 
-    now = datetime.now(LOCAL_TZ)
-    start = datetime.fromisoformat(schedule['start_time'])
-    wake = datetime.fromisoformat(schedule['wake_time'])
-
-    # Make times timezone-aware if they aren't already
-    if start.tzinfo is None:
-        start = start.replace(tzinfo=LOCAL_TZ)
-    if wake.tzinfo is None:
-        wake = wake.replace(tzinfo=LOCAL_TZ)
+    # All times are UTC
+    now = datetime.utcnow()
+    start = datetime.fromisoformat(schedule['start_time'].replace("Z", ""))
+    wake = datetime.fromisoformat(schedule['wake_time'].replace("Z", ""))
 
     # Check if schedule is still valid
     if now < start or now > wake:
@@ -1304,7 +1313,7 @@ async def start_sleep_mode(data: dict):
     wake_time_str = data.get("wakeTime", "7:00 AM")
     curve = data.get("curve", [])
 
-    # Parse wake time
+    # Parse wake time (user's local time)
     time_part, ampm = wake_time_str.split(' ')
     hours, mins = map(int, time_part.split(':'))
     if ampm == 'PM' and hours != 12:
@@ -1312,22 +1321,27 @@ async def start_sleep_mode(data: dict):
     if ampm == 'AM' and hours == 12:
         hours = 0
 
-    # Use local timezone for sleep schedule
-    now = datetime.now(LOCAL_TZ)
-    wake = now.replace(hour=hours, minute=mins, second=0, microsecond=0)
-    if wake <= now:
-        wake += timedelta(days=1)
+    # Create wake time in user's local timezone, then convert to UTC
+    now_local = datetime.now(LOCAL_TZ)
+    wake_local = now_local.replace(hour=hours, minute=mins, second=0, microsecond=0)
+    if wake_local <= now_local:
+        wake_local += timedelta(days=1)
+
+    # Convert to UTC for storage
+    UTC = ZoneInfo("UTC")
+    now_utc = now_local.astimezone(UTC)
+    wake_utc = wake_local.astimezone(UTC)
 
     schedule = {
-        "start_time": now.isoformat(),
-        "wake_time": wake.isoformat(),
+        "start_time": now_utc.strftime("%Y-%m-%dT%H:%M:%S") + "Z",
+        "wake_time": wake_utc.strftime("%Y-%m-%dT%H:%M:%S") + "Z",
         "curve": curve
     }
     save_sleep_schedule(schedule)
 
-    print(f"[SLEEP] Started sleep mode: {now.strftime('%I:%M %p')} -> {wake.strftime('%I:%M %p %Z')}")
+    print(f"[SLEEP] Started sleep mode: {now_local.strftime('%I:%M %p')} -> {wake_local.strftime('%I:%M %p')} (local)")
 
-    return {"status": "ok", "wake_time": wake.isoformat()}
+    return {"status": "ok", "wake_time": schedule["wake_time"]}
 
 
 @app.post("/api/sleep/cancel")
@@ -1348,16 +1362,11 @@ async def get_sleep_status():
     if target is None:
         return {"active": False}
 
-    # Calculate progress using local timezone
-    now = datetime.now(LOCAL_TZ)
-    start = datetime.fromisoformat(schedule['start_time'])
-    wake = datetime.fromisoformat(schedule['wake_time'])
+    # Calculate progress using UTC
+    now = datetime.utcnow()
+    start = datetime.fromisoformat(schedule['start_time'].replace("Z", ""))
+    wake = datetime.fromisoformat(schedule['wake_time'].replace("Z", ""))
 
-    # Make times timezone-aware if needed
-    if start.tzinfo is None:
-        start = start.replace(tzinfo=LOCAL_TZ)
-    if wake.tzinfo is None:
-        wake = wake.replace(tzinfo=LOCAL_TZ)
     total_duration = (wake - start).total_seconds()
     elapsed = (now - start).total_seconds()
     progress = min(1.0, max(0.0, elapsed / total_duration))
