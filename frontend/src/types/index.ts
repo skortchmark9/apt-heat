@@ -87,4 +87,5 @@ export interface BatteryStatus {
   charge_limit?: number;
   tou_period?: string;
   charge_state?: string;
+  automation_enabled?: boolean;
 }

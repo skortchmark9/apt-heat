@@ -24,7 +24,7 @@ from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
 from dotenv import load_dotenv
 
-from models import Base, HeaterReading, SleepSchedule
+from models import Base, HeaterReading, SleepSchedule, AppSettings
 from heater import Heater
 from rates import calculate_savings_from_readings, get_tou_period, get_rate_for_period
 from ecoflow import EcoFlowBattery
@@ -50,6 +50,7 @@ polling_task = None
 # Global EcoFlow battery instance
 battery = None
 battery_last_charge_state = None  # Track to avoid redundant API calls
+battery_automation_enabled = True  # Loaded from DB on startup, toggled via API
 
 # Location for weather (10027 = NYC/Morningside Heights)
 WEATHER_LAT = float(os.getenv("WEATHER_LAT", "40.81"))
@@ -72,6 +73,37 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+
+def load_battery_automation_setting():
+    """Load battery automation enabled setting from database."""
+    db = SessionLocal()
+    try:
+        settings = db.query(AppSettings).filter(AppSettings.id == 1).first()
+        if settings is None:
+            # Create default settings
+            settings = AppSettings(id=1, battery_automation_enabled=True)
+            db.add(settings)
+            db.commit()
+            return True
+        return settings.battery_automation_enabled
+    finally:
+        db.close()
+
+
+def save_battery_automation_setting(enabled: bool):
+    """Save battery automation enabled setting to database."""
+    db = SessionLocal()
+    try:
+        settings = db.query(AppSettings).filter(AppSettings.id == 1).first()
+        if settings is None:
+            settings = AppSettings(id=1, battery_automation_enabled=enabled)
+            db.add(settings)
+        else:
+            settings.battery_automation_enabled = enabled
+        db.commit()
     finally:
         db.close()
 
@@ -191,7 +223,11 @@ def control_battery_charging():
     - Off-peak (midnight-8AM): Charge at BATTERY_CHARGE_WATTS
     - Peak (8AM-midnight): Set to 0 to stop grid charging
     """
-    global battery, battery_last_charge_state
+    global battery, battery_last_charge_state, battery_automation_enabled
+
+    # Skip if automation is disabled
+    if not battery_automation_enabled:
+        return "disabled"
 
     # Initialize battery if needed
     if battery is None:
@@ -227,17 +263,17 @@ def control_battery_charging():
 
 def get_battery_status():
     """Get current battery status for API/dashboard."""
-    global battery
+    global battery, battery_automation_enabled
 
     if battery is None:
         battery = EcoFlowBattery()
 
     if not battery.is_configured:
-        return {"configured": False}
+        return {"configured": False, "automation_enabled": battery_automation_enabled}
 
     status = battery.get_status()
     if status.get("error"):
-        return {"configured": True, "error": status["error"]}
+        return {"configured": True, "error": status["error"], "automation_enabled": battery_automation_enabled}
 
     # Add TOU context
     now = datetime.now(LOCAL_TZ)
@@ -253,6 +289,7 @@ def get_battery_status():
         "charge_limit": status.get("ac_charge_watts"),
         "tou_period": period,
         "charge_state": battery_last_charge_state,
+        "automation_enabled": battery_automation_enabled,
     }
 
 
@@ -321,10 +358,14 @@ async def poll_heater():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start polling on startup, cleanup on shutdown."""
-    global polling_task
+    global polling_task, battery_automation_enabled
 
     # Create tables
     Base.metadata.create_all(bind=engine)
+
+    # Load settings from DB
+    battery_automation_enabled = load_battery_automation_setting()
+    print(f"Battery automation: {'enabled' if battery_automation_enabled else 'DISABLED'}")
 
     # Start polling
     polling_task = asyncio.create_task(poll_heater())
@@ -1354,6 +1395,17 @@ async def get_status():
 async def api_battery_status():
     """Get current EcoFlow battery status."""
     return get_battery_status()
+
+
+@app.post("/api/battery/automation/toggle")
+async def toggle_battery_automation():
+    """Toggle battery automation on/off (persisted to DB)."""
+    global battery_automation_enabled
+    battery_automation_enabled = not battery_automation_enabled
+    save_battery_automation_setting(battery_automation_enabled)
+    state = "enabled" if battery_automation_enabled else "disabled"
+    print(f"[BATTERY] Automation {state} via API (saved to DB)")
+    return {"automation_enabled": battery_automation_enabled}
 
 
 @app.post("/api/oscillation/toggle")

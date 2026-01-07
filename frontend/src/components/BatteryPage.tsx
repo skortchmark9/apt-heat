@@ -1,4 +1,23 @@
+import { useState } from 'react';
 import { useBatteryStatus } from '../hooks/useBatteryStatus';
+
+function ToggleSwitch({ enabled, onToggle, loading }: { enabled: boolean; onToggle: () => void; loading: boolean }) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={loading}
+      className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+        enabled ? 'bg-emerald-500' : 'bg-gray-300'
+      } ${loading ? 'opacity-50' : ''}`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+          enabled ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </button>
+  );
+}
 
 function BatteryIcon({ soc }: { soc: number }) {
   // Battery fill color based on charge level
@@ -68,7 +87,22 @@ function PowerFlow({ wattsIn, wattsOut }: { wattsIn: number; wattsOut: number })
 }
 
 export function BatteryPage() {
-  const { status, loading, error } = useBatteryStatus();
+  const { status, loading, error, refresh } = useBatteryStatus();
+  const [toggling, setToggling] = useState(false);
+
+  const handleToggleAutomation = async () => {
+    setToggling(true);
+    try {
+      const res = await fetch('/api/battery/automation/toggle', { method: 'POST' });
+      if (res.ok) {
+        await refresh();
+      }
+    } catch (e) {
+      console.error('Failed to toggle automation:', e);
+    } finally {
+      setToggling(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -148,6 +182,23 @@ export function BatteryPage() {
         {/* Power Flow */}
         <PowerFlow wattsIn={wattsIn} wattsOut={wattsOut} />
 
+        {/* Automation Control */}
+        <div className={`rounded-2xl p-5 shadow-sm mb-4 ${status.automation_enabled ? 'bg-white' : 'bg-red-50 border-2 border-red-200'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <h3 className="text-sm font-medium text-gray-700">Battery Automation</h3>
+              <p className={`text-xs ${status.automation_enabled ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
+                {status.automation_enabled ? 'Server controls charging based on TOU rates' : 'Manual control - server will not change settings'}
+              </p>
+            </div>
+            <ToggleSwitch
+              enabled={status.automation_enabled ?? true}
+              onToggle={handleToggleAutomation}
+              loading={toggling}
+            />
+          </div>
+        </div>
+
         {/* Peak Shaving Status */}
         <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
           <h3 className="text-sm font-medium text-gray-500 mb-4">Peak Shaving</h3>
@@ -158,15 +209,17 @@ export function BatteryPage() {
                 {touPeriod === 'off_peak' ? 'Off-Peak' : touPeriod === 'super_peak' ? 'Super Peak' : 'Peak'}
               </div>
             </div>
-            <div className={`p-4 rounded-xl ${chargeState === 'charging' ? 'bg-green-100' : 'bg-gray-100'}`}>
+            <div className={`p-4 rounded-xl ${chargeState === 'charging' ? 'bg-green-100' : chargeState === 'disabled' ? 'bg-red-100' : 'bg-gray-100'}`}>
               <div className="text-xs opacity-70 mb-1">Charge Mode</div>
-              <div className={`text-lg font-semibold ${chargeState === 'charging' ? 'text-green-700' : 'text-gray-700'}`}>
-                {chargeState === 'charging' ? 'Active' : 'Paused'}
+              <div className={`text-lg font-semibold ${chargeState === 'charging' ? 'text-green-700' : chargeState === 'disabled' ? 'text-red-700' : 'text-gray-700'}`}>
+                {chargeState === 'charging' ? 'Active' : chargeState === 'disabled' ? 'Manual' : 'Paused'}
               </div>
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-4">
-            {touPeriod === 'off_peak'
+            {!status.automation_enabled
+              ? 'Automation disabled - battery settings controlled manually'
+              : touPeriod === 'off_peak'
               ? 'Charging from grid during cheap off-peak hours (12AM-8AM)'
               : 'Grid charging paused during expensive peak hours (8AM-12AM)'}
           </p>

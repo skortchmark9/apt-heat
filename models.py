@@ -7,6 +7,15 @@ from sqlalchemy.orm import declarative_base
 Base = declarative_base()
 
 
+class AppSettings(Base):
+    """App settings (only one row, id=1)."""
+
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    battery_automation_enabled = Column(Boolean, default=True)
+
+
 class SleepSchedule(Base):
     """Active sleep schedule (only one row, id=1)."""
 
