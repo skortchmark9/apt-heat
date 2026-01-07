@@ -33,51 +33,16 @@ export function useReadings(hours: number = 24) {
   const latestOutdoorTemp = latestReading?.outdoor_temp_f ?? null;
   const latestTimestamp = latestReading?.timestamp ?? null;
 
-  // Check staleness - either no recent readings OR data hasn't changed (cached cloud data)
+  // Check staleness (> 5 minutes old)
   const STALE_THRESHOLD_MS = 5 * 60 * 1000;
-  const MIN_READINGS_FOR_STALE_CHECK = 10;
-
-  let isStale = false;
-  let lastChangedTimestamp = latestTimestamp;
-
-  if (latestTimestamp) {
-    const timeSinceLastReading = Date.now() - new Date(latestTimestamp).getTime();
-    if (timeSinceLastReading > STALE_THRESHOLD_MS) {
-      // No new readings for 5+ minutes
-      isStale = true;
-    } else if (readings.length >= MIN_READINGS_FOR_STALE_CHECK) {
-      // Check if readings have been identical (cloud returning cached data)
-      const recentReadings = readings.slice(-MIN_READINGS_FOR_STALE_CHECK);
-      const temps = new Set(recentReadings.map(r => r.current_temp_f));
-      const targets = new Set(recentReadings.map(r => r.target_temp_f));
-      const powers = new Set(recentReadings.map(r => r.power));
-
-      // If all readings are identical, data is stale/cached
-      if (temps.size === 1 && targets.size === 1 && powers.size === 1) {
-        // Find when data last changed
-        for (let i = readings.length - 1; i > 0; i--) {
-          const curr = readings[i];
-          const prev = readings[i - 1];
-          if (curr.current_temp_f !== prev.current_temp_f ||
-              curr.target_temp_f !== prev.target_temp_f ||
-              curr.power !== prev.power) {
-            lastChangedTimestamp = curr.timestamp;
-            break;
-          }
-        }
-        // If data hasn't changed for 5+ minutes, it's stale
-        if (lastChangedTimestamp) {
-          const timeSinceChange = Date.now() - new Date(lastChangedTimestamp).getTime();
-          isStale = timeSinceChange > STALE_THRESHOLD_MS;
-        }
-      }
-    }
-  }
+  const isStale = latestTimestamp
+    ? Date.now() - new Date(latestTimestamp).getTime() > STALE_THRESHOLD_MS
+    : false;
 
   return {
     readings,
     latestOutdoorTemp,
-    latestTimestamp: isStale ? lastChangedTimestamp : latestTimestamp,
+    latestTimestamp,
     isStale,
     loading,
     error,
