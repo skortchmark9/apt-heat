@@ -1358,7 +1358,10 @@ async def get_readings(
     # Downsample if we have too many points
     if len(readings) > max_points:
         step = len(readings) / max_points
-        readings = [readings[int(i * step)] for i in range(max_points)]
+        sampled = [readings[int(i * step)] for i in range(max_points)]
+        # Always include the most recent reading for staleness checks
+        sampled[-1] = readings[-1]
+        readings = sampled
 
     return [
         {
