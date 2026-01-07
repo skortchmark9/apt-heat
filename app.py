@@ -393,8 +393,9 @@ if (FRONTEND_DIR / "assets").exists():
 
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/battery", response_class=HTMLResponse)
 async def dashboard():
-    """Serve the React dashboard."""
+    """Serve the React dashboard (SPA catch-all for client-side routing)."""
     index_path = FRONTEND_DIR / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
