@@ -247,14 +247,20 @@ class EcoFlowBattery:
         ac_charge_watts = self._extract(data, "slowChgWatts", "inv.cfgSlowChgWatts", "inv.slowChgWatts")
         min_discharge_soc = self._extract(data, "ems.minDsgSoc", "minDsgSoc")
 
+        # Determine actual charging/discharging state based on net power flow
+        # (watts_in includes pass-through power to load, not just battery charging)
+        net_power = watts_in - watts_out
+        charging = net_power > 50  # Net energy going INTO battery
+        discharging = net_power < -50  # Net energy coming FROM battery
+
         return {
             "configured": True,
             "error": None,
             "soc": soc,
             "watts_in": watts_in,
             "watts_out": watts_out,
-            "charging": watts_in > 10,  # Small threshold to ignore noise
-            "discharging": watts_out > 10,
+            "charging": charging,
+            "discharging": discharging,
             "ac_charge_watts": ac_charge_watts,
             "min_discharge_soc": min_discharge_soc,
             "raw": data  # Full data for debugging

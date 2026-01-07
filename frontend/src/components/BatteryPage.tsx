@@ -145,7 +145,7 @@ export function BatteryPage() {
   const touPeriod = status.tou_period ?? 'unknown';
   const chargeState = status.charge_state ?? 'unknown';
 
-  // Determine battery state
+  // Determine battery state based on net power flow
   let stateLabel = 'Idle';
   let stateVariant: 'default' | 'success' | 'warning' = 'default';
   if (status.charging) {
@@ -154,6 +154,8 @@ export function BatteryPage() {
   } else if (status.discharging) {
     stateLabel = 'Discharging';
     stateVariant = 'warning';
+  } else if (wattsIn > 0 && wattsOut > 0) {
+    stateLabel = 'Pass-through';  // Grid powering load directly
   }
 
   return (
