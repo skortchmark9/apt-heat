@@ -321,6 +321,10 @@ async def poll_heater():
             status = heater.summary()
             outdoor_temp = get_outdoor_temp()
 
+            # Get heater power from battery output (more accurate than Tuya)
+            battery_status = get_battery_status()
+            heater_watts = battery_status.get("watts_out", 0) if battery_status.get("configured") else 0
+
             # Store reading
             db = SessionLocal()
             try:
@@ -332,7 +336,7 @@ async def poll_heater():
                     target_temp_f=status.get("target_temp_f"),
                     heat_mode=status.get("heat_mode"),
                     active_heat_level=status.get("active_heat_level"),
-                    power_watts=status.get("power_watts"),
+                    power_watts=heater_watts,
                     oscillation=status.get("oscillation"),
                     display=status.get("display"),
                     person_detection=status.get("person_detection"),
@@ -345,7 +349,7 @@ async def poll_heater():
                 db.add(reading)
                 db.commit()
                 print(f"[{datetime.now()}] Logged: {status.get('current_temp_f')}°F inside, "
-                      f"{outdoor_temp}°F outside, power={status.get('power')}")
+                      f"{outdoor_temp}°F outside, power={status.get('power')}, {heater_watts}W")
             finally:
                 db.close()
 
