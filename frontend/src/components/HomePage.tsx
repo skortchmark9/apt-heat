@@ -25,7 +25,7 @@ export function HomePage() {
     cancelSleepMode,
   } = useHeaterStatus();
 
-  const { readings, latestOutdoorTemp } = useReadings(chartHours);
+  const { readings, latestOutdoorTemp, latestTimestamp, isStale } = useReadings(chartHours);
 
   // Handlers
   const handleTempUp = () => {
@@ -61,6 +61,8 @@ export function HomePage() {
         status={status}
         sleepSchedule={sleepSchedule}
         savings={savings}
+        isOffline={isStale}
+        lastSeen={latestTimestamp}
         onSleepCardClick={() => setShowSleepModal(true)}
       />
 

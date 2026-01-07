@@ -1,13 +1,16 @@
 import type { HeaterStatus, SleepSchedule, SavingsData } from '../../types';
+import { formatDistanceToNow } from 'date-fns';
 
 interface CurrentStatusCardProps {
   status: HeaterStatus | null;
   sleepSchedule: SleepSchedule | null;
   savings: SavingsData | null;
+  isOffline?: boolean;
+  lastSeen?: string | null;
   onClick?: () => void;
 }
 
-export function CurrentStatusCard({ status, sleepSchedule, savings, onClick }: CurrentStatusCardProps) {
+export function CurrentStatusCard({ status, sleepSchedule, savings, isOffline, lastSeen, onClick }: CurrentStatusCardProps) {
   const isOff = !status?.power;
   const isHeating = status?.power && (status?.power_watts ?? 0) > 0;
   const isSleepActive = sleepSchedule?.active;
@@ -34,7 +37,17 @@ export function CurrentStatusCard({ status, sleepSchedule, savings, onClick }: C
   let title = 'Temperature reached';
   let subtitle = `Maintaining ${status?.target_temp_f ?? '--'}°F`;
 
-  if (isSleepActive && sleepSchedule) {
+  // Format last seen time
+  const lastSeenText = lastSeen
+    ? formatDistanceToNow(new Date(lastSeen), { addSuffix: true })
+    : 'unknown';
+
+  if (isOffline) {
+    icon = '📡';
+    title = 'Heater offline';
+    subtitle = `Last seen ${lastSeenText}`;
+    cardClasses = 'from-red-500 to-red-600 shadow-[0_4px_20px_rgba(239,68,68,0.3)]';
+  } else if (isSleepActive && sleepSchedule) {
     icon = '🌙';
     title = 'Sleep mode active';
     const wakeDate = new Date(sleepSchedule.wake_time!);

@@ -8,10 +8,12 @@ interface StatusCarouselProps {
   status: HeaterStatus | null;
   sleepSchedule: SleepSchedule | null;
   savings: SavingsData | null;
+  isOffline?: boolean;
+  lastSeen?: string | null;
   onSleepCardClick?: () => void;
 }
 
-export function StatusCarousel({ status, sleepSchedule, savings, onSleepCardClick }: StatusCarouselProps) {
+export function StatusCarousel({ status, sleepSchedule, savings, isOffline, lastSeen, onSleepCardClick }: StatusCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const carouselRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +44,8 @@ export function StatusCarousel({ status, sleepSchedule, savings, onSleepCardClic
           status={status}
           sleepSchedule={sleepSchedule}
           savings={savings}
+          isOffline={isOffline}
+          lastSeen={lastSeen}
           onClick={sleepSchedule?.active ? onSleepCardClick : undefined}
         />
         <ScheduleCard />
