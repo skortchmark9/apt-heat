@@ -245,6 +245,7 @@ class EcoFlowBattery:
         watts_in = self._extract(data, "wattsInSum", "pd.wattsInSum", "inv.inputWatts") or 0
         watts_out = self._extract(data, "wattsOutSum", "pd.wattsOutSum", "inv.outputWatts") or 0
         ac_charge_watts = self._extract(data, "slowChgWatts", "inv.cfgSlowChgWatts", "inv.slowChgWatts")
+        min_discharge_soc = self._extract(data, "ems.minDsgSoc", "minDsgSoc")
 
         return {
             "configured": True,
@@ -255,6 +256,7 @@ class EcoFlowBattery:
             "charging": watts_in > 10,  # Small threshold to ignore noise
             "discharging": watts_out > 10,
             "ac_charge_watts": ac_charge_watts,
+            "min_discharge_soc": min_discharge_soc,
             "raw": data  # Full data for debugging
         }
 
@@ -366,6 +368,8 @@ def print_status(battery: EcoFlowBattery):
     print(f"  AC Out:      {watts_out}W")
     if status.get("ac_charge_watts") is not None:
         print(f"  Charge Limit: {status['ac_charge_watts']}W")
+    if status.get("min_discharge_soc") is not None:
+        print(f"  Min Reserve:  {status['min_discharge_soc']}%")
     print(f"{'='*40}\n")
 
 

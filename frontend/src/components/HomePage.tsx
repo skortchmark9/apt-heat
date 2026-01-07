@@ -7,6 +7,7 @@ import { StatsRow } from './StatsRow';
 import { SleepModal } from './SleepModal';
 import { useHeaterStatus } from '../hooks/useHeaterStatus';
 import { useReadings } from '../hooks/useReadings';
+import { useBatteryStatus } from '../hooks/useBatteryStatus';
 
 export function HomePage() {
   const [chartHours, setChartHours] = useState(24);
@@ -26,6 +27,7 @@ export function HomePage() {
   } = useHeaterStatus();
 
   const { readings, latestOutdoorTemp, latestTimestamp, isStale } = useReadings(chartHours);
+  const { status: batteryStatus } = useBatteryStatus();
 
   // Handlers
   const handleTempUp = () => {
@@ -69,6 +71,7 @@ export function HomePage() {
       <HomeGrid
         status={status}
         outdoorTemp={latestOutdoorTemp}
+        powerWatts={batteryStatus?.watts_out ?? 0}
         onTempUp={handleTempUp}
         onTempDown={handleTempDown}
         onPowerToggle={togglePower}

@@ -3,6 +3,7 @@ import type { HeaterStatus } from '../types';
 interface HomeGridProps {
   status: HeaterStatus | null;
   outdoorTemp: number | null;
+  powerWatts: number;
   onTempUp: () => void;
   onTempDown: () => void;
   onPowerToggle: () => void;
@@ -14,6 +15,7 @@ interface HomeGridProps {
 export function HomeGrid({
   status,
   outdoorTemp,
+  powerWatts,
   onTempUp,
   onTempDown,
   onPowerToggle,
@@ -23,7 +25,6 @@ export function HomeGrid({
 }: HomeGridProps) {
   const currentTemp = status?.current_temp_f ?? null;
   const targetTemp = status?.target_temp_f ?? 72;
-  const powerWatts = status?.power_watts ?? 0;
   const isPowerOn = status?.power ?? false;
   const isOscillating = status?.oscillation ?? false;
 
