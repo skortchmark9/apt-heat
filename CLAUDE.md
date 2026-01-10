@@ -2,6 +2,15 @@
 
 ## Python Environment
 
+**Requires Python 3.13+** - Python 3.12 has a socket bug on macOS that breaks local Tuya device connections.
+
+To recreate the venv:
+```bash
+rm -rf venv
+python3.13 -m venv venv
+venv/bin/pip install -r requirements.txt
+```
+
 Always use the project venv for Python operations:
 
 ```bash

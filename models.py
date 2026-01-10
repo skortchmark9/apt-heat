@@ -14,6 +14,7 @@ class AppSettings(Base):
 
     id = Column(Integer, primary_key=True, default=1)
     battery_automation_enabled = Column(Boolean, default=True)
+    heater_automation_enabled = Column(Boolean, default=True)
 
 
 class SleepSchedule(Base):

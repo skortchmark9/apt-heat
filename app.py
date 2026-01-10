@@ -43,7 +43,10 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Polling config
 POLL_INTERVAL_SEC = int(os.getenv("POLL_INTERVAL_SEC", "60"))
 
-# Global heater instance (cloud mode for remote access)
+# Heater mode: "cloud" (default for Railway), "local" (for local dev with LAN access)
+HEATER_MODE = os.getenv("HEATER_MODE", "cloud")
+
+# Global heater instance
 heater = None
 polling_task = None
 
@@ -212,7 +215,7 @@ def get_sleep_target_temp():
 # =============================================================================
 
 # Charging power settings
-BATTERY_CHARGE_WATTS = int(os.getenv("BATTERY_CHARGE_WATTS", "1800"))  # Off-peak charging rate
+BATTERY_CHARGE_WATTS = int(os.getenv("BATTERY_CHARGE_WATTS", "300"))  # Off-peak charging rate (safe with heater)
 BATTERY_PEAK_WATTS = 0  # During peak: stop charging from grid
 
 
@@ -300,7 +303,7 @@ async def poll_heater():
     while True:
         try:
             if heater is None:
-                heater = Heater(mode="cloud")
+                heater = Heater(mode=HEATER_MODE)
 
             # Control battery charging based on TOU period
             control_battery_charging()
@@ -1395,7 +1398,7 @@ async def get_status():
     """Get current heater status (live from device)."""
     global heater
     if heater is None:
-        heater = Heater(mode="cloud")
+        heater = Heater(mode=HEATER_MODE)
     return heater.summary()
 
 
@@ -1421,7 +1424,7 @@ async def toggle_oscillation():
     """Toggle oscillation on/off."""
     global heater
     if heater is None:
-        heater = Heater(mode="cloud")
+        heater = Heater(mode=HEATER_MODE)
     current = heater.get_oscillation()
     heater.set_oscillation(not current)
     return {"oscillation": not current}
@@ -1432,7 +1435,7 @@ async def toggle_power():
     """Toggle heater power on/off."""
     global heater
     if heater is None:
-        heater = Heater(mode="cloud")
+        heater = Heater(mode=HEATER_MODE)
     current = heater.is_on()
     heater.set_power(not current)
     return {"power": not current}
@@ -1443,7 +1446,7 @@ async def toggle_display():
     """Toggle display on/off."""
     global heater
     if heater is None:
-        heater = Heater(mode="cloud")
+        heater = Heater(mode=HEATER_MODE)
     current = heater.get_display()
     heater.set_display(not current)
     return {"display": not current}
@@ -1454,7 +1457,7 @@ async def set_target(data: dict):
     """Set target temperature."""
     global heater
     if heater is None:
-        heater = Heater(mode="cloud")
+        heater = Heater(mode=HEATER_MODE)
     temp = data.get("temp", 72)
     temp = max(41, min(95, int(temp)))  # Clamp to valid range
     heater.set_target_temp(temp)
