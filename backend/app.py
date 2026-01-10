@@ -106,6 +106,126 @@ offpeak_state = "heating"
 # Cache of latest channel data from driver
 latest_channels = {}
 
+# =============================================================================
+# STATS CACHE (in-memory running totals for today)
+# =============================================================================
+
+# Today's running stats - reset at midnight (local time)
+_today_stats = {
+    "date": None,  # date object for cache invalidation
+    "total_wh": 0,
+    "peak_wh": 0,
+    "offpeak_wh": 0,
+    "peak_cost": 0,
+    "offpeak_cost": 0,
+    "reading_count": 0,
+    "temp_sum": 0,  # for averaging
+    "outdoor_temp_sum": 0,
+    "min_temp": None,
+    "max_temp": None,
+}
+
+
+def update_today_stats(power_watts: int, timestamp: datetime, indoor_temp: int = None, outdoor_temp: int = None):
+    """Update today's running stats with a new reading."""
+    global _today_stats
+
+    today = datetime.now(LOCAL_TZ).date()
+
+    # Reset cache if it's a new day
+    if _today_stats["date"] != today:
+        _today_stats = {
+            "date": today,
+            "total_wh": 0,
+            "peak_wh": 0,
+            "offpeak_wh": 0,
+            "peak_cost": 0,
+            "offpeak_cost": 0,
+            "reading_count": 0,
+            "temp_sum": 0,
+            "outdoor_temp_sum": 0,
+            "min_temp": None,
+            "max_temp": None,
+        }
+
+    if power_watts and power_watts > 0:
+        # Assume ~60 second intervals between readings
+        poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+        wh = power_watts * (poll_interval / 3600)
+
+        _today_stats["total_wh"] += wh
+
+        # Get period and rate
+        period, rate = get_rate_for_period(timestamp)
+
+        if period == "off_peak":
+            _today_stats["offpeak_wh"] += wh
+            _today_stats["offpeak_cost"] += (wh / 1000) * rate
+        else:
+            _today_stats["peak_wh"] += wh
+            _today_stats["peak_cost"] += (wh / 1000) * rate
+
+    # Track temps for averaging
+    _today_stats["reading_count"] += 1
+    if indoor_temp is not None:
+        _today_stats["temp_sum"] += indoor_temp
+        if _today_stats["min_temp"] is None or indoor_temp < _today_stats["min_temp"]:
+            _today_stats["min_temp"] = indoor_temp
+        if _today_stats["max_temp"] is None or indoor_temp > _today_stats["max_temp"]:
+            _today_stats["max_temp"] = indoor_temp
+    if outdoor_temp is not None:
+        _today_stats["outdoor_temp_sum"] += outdoor_temp
+
+
+def get_today_stats() -> dict:
+    """Get today's stats formatted for API response."""
+    from rates import is_summer, TOU_SUMMER_OFFPEAK_RATE, TOU_WINTER_OFFPEAK_RATE
+
+    today = datetime.now(LOCAL_TZ).date()
+
+    # If cache is stale, return zeros
+    if _today_stats["date"] != today:
+        return {
+            "date": today.isoformat(),
+            "total_kwh": 0,
+            "peak_kwh": 0,
+            "offpeak_kwh": 0,
+            "savings": 0,
+            "would_have_cost": 0,
+            "actual_cost": 0,
+        }
+
+    total_kwh = _today_stats["total_wh"] / 1000
+    peak_kwh = _today_stats["peak_wh"] / 1000
+    offpeak_kwh = _today_stats["offpeak_wh"] / 1000
+
+    would_have_cost = _today_stats["peak_cost"] + _today_stats["offpeak_cost"]
+
+    # Actual cost (all energy at off-peak rate)
+    summer = is_summer(datetime.now(LOCAL_TZ))
+    offpeak_rate = TOU_SUMMER_OFFPEAK_RATE if summer else TOU_WINTER_OFFPEAK_RATE
+    actual_cost = total_kwh * offpeak_rate
+
+    savings = would_have_cost - actual_cost
+
+    result = {
+        "date": today.isoformat(),
+        "total_kwh": round(total_kwh, 2),
+        "peak_kwh": round(peak_kwh, 2),
+        "offpeak_kwh": round(offpeak_kwh, 2),
+        "savings": round(savings, 2),
+        "would_have_cost": round(would_have_cost, 2),
+        "actual_cost": round(actual_cost, 2),
+    }
+
+    # Add temp stats if we have readings
+    if _today_stats["reading_count"] > 0 and _today_stats["temp_sum"] > 0:
+        result["avg_temp"] = round(_today_stats["temp_sum"] / _today_stats["reading_count"])
+        result["min_temp"] = _today_stats["min_temp"]
+        result["max_temp"] = _today_stats["max_temp"]
+
+    return result
+
 
 def get_db():
     db = SessionLocal()
@@ -434,6 +554,14 @@ async def driver_sync(request: Request):
         )
         db.add(reading)
         db.commit()
+
+        # Update today's running stats
+        update_today_stats(
+            power_watts=reading.power_watts,
+            timestamp=reading.timestamp,
+            indoor_temp=reading.current_temp_f,
+            outdoor_temp=reading.outdoor_temp_f,
+        )
     finally:
         db.close()
 
@@ -732,3 +860,88 @@ async def get_savings(
     result["current_rate"] = get_rate_for_period(datetime.now())[1]
 
     return result
+
+
+@app.get("/api/stats/today")
+async def get_stats_today():
+    """Get today's running stats (from in-memory cache)."""
+    return get_today_stats()
+
+
+@app.get("/api/stats/history")
+async def get_stats_history(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db)
+):
+    """
+    Get daily stats for the past N days plus streak count.
+
+    Returns list of daily stats and current savings streak.
+    """
+    today = datetime.now(LOCAL_TZ).date()
+    poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+
+    daily_stats = []
+
+    # Compute stats for each day
+    for days_ago in range(days):
+        day = today - timedelta(days=days_ago)
+
+        # For today, use the cached stats
+        if days_ago == 0:
+            daily_stats.append(get_today_stats())
+            continue
+
+        # For past days, query DB
+        day_start = datetime.combine(day, datetime.min.time())
+        day_end = datetime.combine(day, datetime.max.time())
+
+        readings = db.query(HeaterReading).filter(
+            HeaterReading.timestamp >= day_start,
+            HeaterReading.timestamp <= day_end
+        ).order_by(HeaterReading.timestamp).all()
+
+        if not readings:
+            daily_stats.append({
+                "date": day.isoformat(),
+                "total_kwh": 0,
+                "peak_kwh": 0,
+                "offpeak_kwh": 0,
+                "savings": 0,
+                "would_have_cost": 0,
+                "actual_cost": 0,
+            })
+            continue
+
+        result = calculate_savings_from_readings(readings, poll_interval)
+        result["date"] = day.isoformat()
+
+        # Add temp stats
+        temps = [r.current_temp_f for r in readings if r.current_temp_f is not None]
+        if temps:
+            result["avg_temp"] = round(sum(temps) / len(temps))
+            result["min_temp"] = min(temps)
+            result["max_temp"] = max(temps)
+
+        daily_stats.append(result)
+
+    # Calculate streak (consecutive days with savings > 0)
+    streak = 0
+    for stat in daily_stats:
+        if stat.get("savings", 0) > 0:
+            streak += 1
+        else:
+            break
+
+    # Calculate month totals
+    month_start = today.replace(day=1)
+    month_stats = [s for s in daily_stats if s["date"] >= month_start.isoformat()]
+    month_savings = sum(s.get("savings", 0) for s in month_stats)
+    month_kwh = sum(s.get("total_kwh", 0) for s in month_stats)
+
+    return {
+        "days": daily_stats,
+        "streak": streak,
+        "month_savings": round(month_savings, 2),
+        "month_kwh": round(month_kwh, 2),
+    }
