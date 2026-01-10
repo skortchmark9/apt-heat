@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""
+Local device driver for apt_heat.
+
+Polls heater, plug, and battery at regular intervals and pushes telemetry
+to the remote server. Receives target setpoints from server and applies them.
+
+Usage:
+    python driver/main.py [--period 1.0] [--server-url http://localhost:8000]
+"""
+
+import argparse
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Add driver dir to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from heater import Heater
+from tapo_plug import TapoPlug
+from ecoflow import EcoFlowBattery
+
+
+def now_iso() -> str:
+    """Current UTC time in ISO format."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+class Channel:
+    """A single telemetry channel with value and timestamp."""
+
+    def __init__(self, value=None):
+        self.value = value
+        self.last_updated = now_iso() if value is not None else None
+
+    def update(self, value):
+        """Update value and timestamp."""
+        self.value = value
+        self.last_updated = now_iso()
+
+    def to_dict(self) -> dict:
+        return {
+            'value': self.value,
+            'last_updated': self.last_updated,
+        }
+
+
+class Slate:
+    """Collection of telemetry channels."""
+
+    def __init__(self):
+        self._channels: dict[str, Channel] = {}
+
+    def set(self, name: str, value):
+        """Update a channel's value and timestamp."""
+        if name not in self._channels:
+            self._channels[name] = Channel()
+        self._channels[name].update(value)
+
+    def get(self, name: str):
+        """Get a channel's current value."""
+        if name in self._channels:
+            return self._channels[name].value
+        return None
+
+    def to_dict(self) -> dict:
+        """Export all channels as dict."""
+        return {name: ch.to_dict() for name, ch in self._channels.items()}
+
+    def __repr__(self):
+        return f"Slate({list(self._channels.keys())})"
+
+
+class Driver:
+    """Main driver that polls devices and syncs with server."""
+
+    def __init__(self, server_url: str, period: float):
+        self.server_url = server_url.rstrip('/')
+        self.period = period
+        self.slate = Slate()
+        self.cycle = 0
+
+        # Track last-set values to avoid redundant commands
+        self._last_set = {}
+
+        # Initialize devices
+        print("Initializing devices...")
+        try:
+            self.heater = Heater(mode='local')
+            print(f"  Heater: OK (mode={self.heater.mode})")
+        except Exception as e:
+            print(f"  Heater: FAILED ({e})")
+            self.heater = None
+
+        try:
+            self.plug = TapoPlug(mode='local')
+            print(f"  Plug: OK (mode={self.plug.mode})")
+        except Exception as e:
+            print(f"  Plug: FAILED ({e})")
+            self.plug = None
+
+        try:
+            self.battery = EcoFlowBattery()
+            print(f"  Battery: OK")
+        except Exception as e:
+            print(f"  Battery: FAILED ({e})")
+            self.battery = None
+
+    def update_heater(self):
+        """Read heater state into slate."""
+        if not self.heater:
+            return
+
+        try:
+            status = self.heater.get_status()
+            # DPS 1: Power on/off
+            self.slate.set('heater_power', status.get('1'))
+            # DPS 3: Current room temperature (°F)
+            self.slate.set('heater_current_temp', status.get('3'))
+            # DPS 5: Heat mode setting (Low/Medium/High)
+            self.slate.set('heater_heat_mode', status.get('5'))
+            # DPS 8: Oscillation on/off
+            self.slate.set('heater_oscillation', status.get('8'))
+            # DPS 10: Display/LED on/off (False = night mode)
+            self.slate.set('heater_display', status.get('10'))
+            # DPS 11: Active heat level (Stop/Low/Medium/High, read-only)
+            self.slate.set('heater_active_heat_level', status.get('11'))
+            # DPS 14: Target temperature setpoint (°F)
+            self.slate.set('heater_target_temp', status.get('14'))
+            # DPS 101: Person detection / ClimaSense on/off
+            self.slate.set('heater_person_detection', status.get('101'))
+            # DPS 102: Auto-on when person detected
+            self.slate.set('heater_auto_on', status.get('102'))
+            # DPS 103: Person detection timeout (5min/15min/30min)
+            self.slate.set('heater_detection_timeout', status.get('103'))
+            # DPS 104: Unknown
+            self.slate.set('heater_dps_104', status.get('104'))
+            # DPS 105: Timer value (base ~59, + seconds remaining when active)
+            self.slate.set('heater_timer_value', status.get('105'))
+            # DPS 106: Cumulative energy usage (kWh)
+            self.slate.set('heater_energy_kwh', status.get('106'))
+            # DPS 107: Session heating flag
+            self.slate.set('heater_session_heating', status.get('107'))
+            # DPS 108: Fault code (0=none, 16=tip-over)
+            self.slate.set('heater_fault_code', status.get('108'))
+        except Exception as e:
+            print(f"  [heater] read error: {e}")
+
+    def update_plug(self):
+        """Read plug state into slate."""
+        if not self.plug:
+            return
+
+        try:
+            status = self.plug.get_full_status()
+            if status.get('success'):
+                # Device state
+                self.slate.set('plug_on', status.get('device_on'))
+                self.slate.set('plug_on_time', status.get('on_time'))
+                # Network
+                self.slate.set('plug_rssi', status.get('rssi'))
+                self.slate.set('plug_signal_level', status.get('signal_level'))
+                # Protection status
+                self.slate.set('plug_overcurrent_status', status.get('overcurrent_status'))
+                self.slate.set('plug_overheat_status', status.get('overheat_status'))
+                self.slate.set('plug_power_protection_status', status.get('power_protection_status'))
+                self.slate.set('plug_charging_status', status.get('charging_status'))
+                # Energy usage
+                self.slate.set('plug_today_energy_wh', status.get('today_energy'))
+                self.slate.set('plug_today_runtime_min', status.get('today_runtime'))
+                self.slate.set('plug_month_energy_wh', status.get('month_energy'))
+                self.slate.set('plug_month_runtime_min', status.get('month_runtime'))
+        except Exception as e:
+            print(f"  [plug] read error: {e}")
+
+    def update_battery(self):
+        """Read battery state into slate."""
+        if not self.battery:
+            return
+
+        try:
+            status = self.battery.get_status()
+            if status:
+                # Basic status
+                self.slate.set('battery_soc', status.get('soc'))
+                self.slate.set('battery_watts_in', status.get('watts_in'))
+                self.slate.set('battery_watts_out', status.get('watts_out'))
+                self.slate.set('battery_charging', status.get('charging'))
+                self.slate.set('battery_discharging', status.get('discharging'))
+                self.slate.set('battery_ac_charge_watts', status.get('ac_charge_watts'))
+                self.slate.set('battery_min_discharge_soc', status.get('min_discharge_soc'))
+
+                # Extract more from raw if available
+                raw = status.get('raw', {})
+                if raw:
+                    # Temperatures
+                    self.slate.set('battery_inv_out_temp', raw.get('inv.outTemp'))
+                    self.slate.set('battery_dc_in_temp', raw.get('inv.dcInTemp'))
+                    self.slate.set('battery_mppt_temp', raw.get('mppt.mpptTemp'))
+                    self.slate.set('battery_bms_temp', raw.get('bmsMaster.temp'))
+                    self.slate.set('battery_bms_max_cell_temp', raw.get('bmsMaster.maxCellTemp'))
+                    self.slate.set('battery_bms_min_cell_temp', raw.get('bmsMaster.minCellTemp'))
+                    # Voltages
+                    self.slate.set('battery_bms_vol', raw.get('bmsMaster.vol'))
+                    self.slate.set('battery_bms_max_cell_vol', raw.get('bmsMaster.maxCellVol'))
+                    self.slate.set('battery_bms_min_cell_vol', raw.get('bmsMaster.minCellVol'))
+                    self.slate.set('battery_inv_out_vol', raw.get('inv.invOutVol'))
+                    self.slate.set('battery_inv_ac_in_vol', raw.get('inv.acInVol'))
+                    # Currents/Power
+                    self.slate.set('battery_bms_amp', raw.get('bmsMaster.amp'))
+                    self.slate.set('battery_inv_input_watts', raw.get('inv.inputWatts'))
+                    self.slate.set('battery_inv_output_watts', raw.get('inv.outputWatts'))
+                    self.slate.set('battery_mppt_in_watts', raw.get('mppt.inWatts'))
+                    self.slate.set('battery_mppt_out_watts', raw.get('mppt.outWatts'))
+                    self.slate.set('battery_pd_chg_power_ac', raw.get('pd.chgPowerAc'))
+                    self.slate.set('battery_pd_dsg_power_ac', raw.get('pd.dsgPowerAc'))
+                    self.slate.set('battery_pd_chg_power_dc', raw.get('pd.chgPowerDc'))
+                    self.slate.set('battery_pd_dsg_power_dc', raw.get('pd.dsgPowerDc'))
+                    # Capacity/Health
+                    self.slate.set('battery_bms_remain_cap', raw.get('bmsMaster.remainCap'))
+                    self.slate.set('battery_bms_full_cap', raw.get('bmsMaster.fullCap'))
+                    self.slate.set('battery_bms_design_cap', raw.get('bmsMaster.designCap'))
+                    self.slate.set('battery_bms_cycles', raw.get('bmsMaster.cycles'))
+                    self.slate.set('battery_bms_soh', raw.get('bmsMaster.soh'))
+                    # Time
+                    self.slate.set('battery_pd_remain_time', raw.get('pd.remainTime'))
+                    self.slate.set('battery_ems_chg_remain_time', raw.get('ems.chgRemainTime'))
+                    self.slate.set('battery_ems_dsg_remain_time', raw.get('ems.dsgRemainTime'))
+                    # State
+                    self.slate.set('battery_ems_chg_state', raw.get('ems.chgState'))
+                    self.slate.set('battery_bms_chg_dsg_state', raw.get('bmsMaster.chgDsgState'))
+                    self.slate.set('battery_pd_dc_out_state', raw.get('pd.dcOutState'))
+                    self.slate.set('battery_inv_fan_state', raw.get('inv.fanState'))
+                    # Errors
+                    self.slate.set('battery_pd_err_code', raw.get('pd.errCode'))
+                    self.slate.set('battery_inv_err_code', raw.get('inv.errCode'))
+                    self.slate.set('battery_bms_err_code', raw.get('bmsMaster.errCode'))
+                    self.slate.set('battery_mppt_fault_code', raw.get('mppt.faultCode'))
+                    # Config
+                    self.slate.set('battery_ems_max_charge_soc', raw.get('ems.maxChargeSoc'))
+                    self.slate.set('battery_inv_cfg_ac_enabled', raw.get('inv.cfgAcEnabled'))
+                    self.slate.set('battery_inv_cfg_slow_chg_watts', raw.get('inv.cfgSlowChgWatts'))
+        except Exception as e:
+            print(f"  [battery] read error: {e}")
+
+    def post_to_server(self) -> dict | None:
+        """POST slate to server, return target setpoints."""
+        import json
+        from urllib.request import Request, urlopen
+        from urllib.error import URLError, HTTPError
+
+        url = f"{self.server_url}/api/driver/sync"
+        payload = json.dumps(self.slate.to_dict()).encode('utf-8')
+
+        try:
+            req = Request(url, data=payload, method='POST')
+            req.add_header('Content-Type', 'application/json')
+            with urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except HTTPError as e:
+            print(f"  [server] HTTP {e.code}: {e.reason}")
+        except URLError as e:
+            print(f"  [server] connection error: {e.reason}")
+        except Exception as e:
+            print(f"  [server] error: {e}")
+        return None
+
+    def apply_targets(self, targets: dict):
+        """Apply target setpoints received from server."""
+        if not targets:
+            return
+
+        # Check master kill switch
+        if not targets.get('driver_control_enabled', True):
+            return
+
+        # Heater targets
+        if 'heater_target_temp' in targets and self.heater:
+            try:
+                target = targets['heater_target_temp']
+                current = self.slate.get('heater_target_temp')
+                if target != current:
+                    self.heater.set_target_temp(target)
+                    print(f"  [heater] set target_temp: {target}")
+            except Exception as e:
+                print(f"  [heater] set error: {e}")
+
+        if 'heater_power' in targets and self.heater:
+            try:
+                target = targets['heater_power']
+                current = self.slate.get('heater_power')
+                if target != current:
+                    self.heater.set_power(target)
+                    print(f"  [heater] set power: {target}")
+            except Exception as e:
+                print(f"  [heater] set error: {e}")
+
+        # Plug targets
+        if 'plug_on' in targets and self.plug:
+            try:
+                target = targets['plug_on']
+                current = self.slate.get('plug_on')
+                if target != current:
+                    if target:
+                        self.plug.turn_on()
+                    else:
+                        self.plug.turn_off()
+                    print(f"  [plug] set on: {target}")
+            except Exception as e:
+                print(f"  [plug] set error: {e}")
+
+        # Battery targets (charging power)
+        if 'battery_charge_power' in targets and self.battery:
+            try:
+                target = targets['battery_charge_power']
+                current = self.slate.get('battery_ac_charge_watts')
+                # If we have a current reading, compare to that
+                # If no reading yet, use last_set to avoid spamming on startup
+                if current is not None:
+                    should_set = (target != current)
+                else:
+                    should_set = (target != self._last_set.get('battery_charge_power'))
+
+                if should_set:
+                    result = self.battery.set_ac_charging_power(target)
+                    # EcoFlow API returns {'code': '0', 'message': 'Success'} on success
+                    if result.get('code') == '0':
+                        print(f"  [battery] set charge_power: {target}W")
+                        self._last_set['battery_charge_power'] = target
+                    else:
+                        print(f"  [battery] set charge_power failed: {result.get('message', result)}")
+            except Exception as e:
+                print(f"  [battery] set error: {e}")
+
+    def run_cycle(self):
+        """Run one polling cycle."""
+        self.cycle += 1
+        cycle_start = time.time()
+
+        # Update devices
+        self.update_heater()
+        self.update_plug()
+
+        # Update battery less frequently (cloud API)
+        if self.cycle % 5 == 0:
+            self.update_battery()
+
+        # Sync with server
+        response = self.post_to_server()
+        if response:
+            targets = response.get('targets', {})
+            self.apply_targets(targets)
+
+        cycle_time = time.time() - cycle_start
+        return cycle_time
+
+    def run(self):
+        """Main loop."""
+        print(f"\nStarting driver loop (period={self.period}s)")
+        print(f"Server: {self.server_url}")
+        print("-" * 40)
+
+        while True:
+            try:
+                cycle_time = self.run_cycle()
+
+                # Sleep for remainder of period
+                sleep_time = max(0, self.period - cycle_time)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                elif cycle_time > self.period:
+                    print(f"  [warn] cycle took {cycle_time:.2f}s (> {self.period}s period)")
+
+            except KeyboardInterrupt:
+                print("\nShutting down...")
+                break
+            except Exception as e:
+                print(f"  [error] cycle failed: {e}")
+                time.sleep(self.period)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Local device driver for apt_heat')
+    parser.add_argument('--period', type=float, default=1.0,
+                        help='Polling period in seconds (default: 1.0)')
+    parser.add_argument('--server-url', type=str, default='https://apt-heat-production.up.railway.app',
+                        help='Server URL (default: https://apt-heat-production.up.railway.app)')
+    args = parser.parse_args()
+
+    driver = Driver(server_url=args.server_url, period=args.period)
+    driver.run()
+
+
+if __name__ == '__main__':
+    main()
