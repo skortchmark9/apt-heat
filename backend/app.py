@@ -183,70 +183,59 @@ def get_sleep_target_temp():
 
 
 # =============================================================================
-# SETPOINT CALCULATION
+# TARGET CALCULATION
 # =============================================================================
 
-# Default setpoints
-DEFAULT_SETPOINTS = {
-    "heater": {
-        "power": True,
-        "target_temp_f": 70,
-        "oscillation": False,
-        "display": True,
-    },
-    "battery": {
-        "charge_watts": 300,  # Off-peak charging rate
-    },
-    "plug": {
-        "power": True,
-    }
-}
-
-# User-adjustable setpoints (persisted separately from automation)
-user_setpoints = {
-    "heater": {
-        "target_temp_f": 70,
-    }
+# User-adjustable targets (persisted separately from automation)
+user_targets = {
+    "heater_target_temp": 70,
+    "heater_power": True,
+    "heater_oscillation": False,
+    "heater_display": True,
+    "plug_on": True,
 }
 
 
-def calculate_setpoints():
+def calculate_targets():
     """
-    Calculate current setpoints based on schedules and automation settings.
+    Calculate current targets based on schedules and automation settings.
 
-    Returns a dict of setpoints for each device type.
+    Returns a flat dict of targets for the driver to apply.
     """
     global battery_automation_enabled, heater_automation_enabled
 
-    setpoints = {
-        "heater": dict(DEFAULT_SETPOINTS["heater"]),
-        "battery": dict(DEFAULT_SETPOINTS["battery"]),
-        "plug": dict(DEFAULT_SETPOINTS["plug"]),
+    targets = {
+        # Heater targets
+        "heater_power": user_targets.get("heater_power", True),
+        "heater_target_temp": user_targets.get("heater_target_temp", 70),
+        "heater_oscillation": user_targets.get("heater_oscillation", False),
+        "heater_display": user_targets.get("heater_display", True),
+        # Plug targets
+        "plug_on": user_targets.get("plug_on", True),
+        # Battery targets
+        "battery_charge_power": 300,  # Default off-peak charging rate
     }
-
-    # Apply user setpoints
-    setpoints["heater"]["target_temp_f"] = user_setpoints["heater"].get("target_temp_f", 70)
 
     # Sleep schedule override for heater target
     sleep_target = get_sleep_target_temp()
     if sleep_target is not None:
-        setpoints["heater"]["target_temp_f"] = sleep_target
-        setpoints["heater"]["sleep_mode"] = True
+        targets["heater_target_temp"] = sleep_target
+        targets["heater_sleep_mode"] = True
 
     # Battery automation based on TOU period
     if battery_automation_enabled:
         now = datetime.now(LOCAL_TZ)
         period = get_tou_period(now)
         if period == "off_peak":
-            setpoints["battery"]["charge_watts"] = 300  # Charge during off-peak
+            targets["battery_charge_power"] = 300  # Charge during off-peak
         else:
-            setpoints["battery"]["charge_watts"] = 0  # Stop charging during peak
-        setpoints["battery"]["tou_period"] = period
+            targets["battery_charge_power"] = 0  # Stop charging during peak
+        targets["battery_tou_period"] = period
 
-    setpoints["battery"]["automation_enabled"] = battery_automation_enabled
-    setpoints["heater"]["automation_enabled"] = heater_automation_enabled
+    targets["battery_automation_enabled"] = battery_automation_enabled
+    targets["heater_automation_enabled"] = heater_automation_enabled
 
-    return setpoints
+    return targets
 
 
 # =============================================================================
@@ -286,54 +275,60 @@ if (FRONTEND_DIR / "assets").exists():
 # DRIVER SYNC ENDPOINT
 # =============================================================================
 
+def get_channel_value(channels: dict, key: str):
+    """Extract value from flat channel format: {key: {value: X, last_updated: Y}}"""
+    ch = channels.get(key, {})
+    if isinstance(ch, dict):
+        return ch.get("value")
+    return ch
+
+
 @app.post("/api/driver/sync")
 async def driver_sync(request: Request):
     """
-    Receive channel data from driver, store reading, return setpoints.
+    Receive channel data from driver, store reading, return targets.
 
-    Driver POSTs a dict of channels, server responds with setpoints.
+    Driver POSTs flat channels like:
+      {"heater_power": {"value": true, "last_updated": "..."}, ...}
+
+    Server responds with flat targets:
+      {"targets": {"heater_target_temp": 70, "heater_power": true, ...}}
     """
     global latest_channels
 
-    data = await request.json()
-    channels = data.get("channels", {})
+    channels = await request.json()
     latest_channels = channels
 
-    # Extract values from channels for DB storage
-    heater = channels.get("heater", {})
-    battery = channels.get("battery", {})
-    weather = channels.get("weather", {})
-
-    # Store reading in DB
+    # Extract values from flat channel format for DB storage
     db = SessionLocal()
     try:
         reading = HeaterReading(
             timestamp=datetime.utcnow(),
-            power=heater.get("power"),
-            current_temp_f=heater.get("current_temp_f"),
-            target_temp_f=heater.get("target_temp_f"),
-            heat_mode=heater.get("heat_mode"),
-            active_heat_level=heater.get("active_heat_level"),
-            power_watts=battery.get("watts_out", 0),  # Use battery output as heater power
-            oscillation=heater.get("oscillation"),
-            display=heater.get("display"),
-            person_detection=heater.get("person_detection"),
-            auto_on=heater.get("auto_on"),
-            detection_timeout=heater.get("detection_timeout"),
-            timer_remaining_sec=heater.get("timer_remaining_sec"),
-            energy_kwh=heater.get("energy_kwh"),
-            fault_code=heater.get("fault_code"),
-            outdoor_temp_f=weather.get("outdoor_temp_f"),
+            power=get_channel_value(channels, "heater_power"),
+            current_temp_f=get_channel_value(channels, "heater_current_temp"),
+            target_temp_f=get_channel_value(channels, "heater_target_temp"),
+            heat_mode=get_channel_value(channels, "heater_heat_mode"),
+            active_heat_level=get_channel_value(channels, "heater_active_heat_level"),
+            power_watts=get_channel_value(channels, "battery_watts_out") or 0,
+            oscillation=get_channel_value(channels, "heater_oscillation"),
+            display=get_channel_value(channels, "heater_display"),
+            person_detection=get_channel_value(channels, "heater_person_detection"),
+            auto_on=get_channel_value(channels, "heater_auto_on"),
+            detection_timeout=get_channel_value(channels, "heater_detection_timeout"),
+            timer_remaining_sec=get_channel_value(channels, "heater_timer_value"),
+            energy_kwh=get_channel_value(channels, "heater_energy_kwh"),
+            fault_code=get_channel_value(channels, "heater_fault_code"),
+            outdoor_temp_f=get_channel_value(channels, "weather_outdoor_temp"),
         )
         db.add(reading)
         db.commit()
     finally:
         db.close()
 
-    # Calculate and return setpoints
-    setpoints = calculate_setpoints()
+    # Calculate and return flat targets
+    targets = calculate_targets()
 
-    return {"setpoints": setpoints}
+    return {"targets": targets}
 
 
 # =============================================================================
@@ -391,18 +386,15 @@ async def get_readings(
 @app.get("/api/status")
 async def get_status():
     """Get current status from latest driver sync."""
-    heater = latest_channels.get("heater", {})
-    battery = latest_channels.get("battery", {})
-
     return {
-        "power": heater.get("power"),
-        "current_temp_f": heater.get("current_temp_f"),
-        "target_temp_f": heater.get("target_temp_f"),
-        "heat_mode": heater.get("heat_mode"),
-        "active_heat_level": heater.get("active_heat_level"),
-        "power_watts": battery.get("watts_out", 0),
-        "oscillation": heater.get("oscillation"),
-        "display": heater.get("display"),
+        "power": get_channel_value(latest_channels, "heater_power"),
+        "current_temp_f": get_channel_value(latest_channels, "heater_current_temp"),
+        "target_temp_f": get_channel_value(latest_channels, "heater_target_temp"),
+        "heat_mode": get_channel_value(latest_channels, "heater_heat_mode"),
+        "active_heat_level": get_channel_value(latest_channels, "heater_active_heat_level"),
+        "power_watts": get_channel_value(latest_channels, "battery_watts_out") or 0,
+        "oscillation": get_channel_value(latest_channels, "heater_oscillation"),
+        "display": get_channel_value(latest_channels, "heater_display"),
     }
 
 
@@ -411,8 +403,8 @@ async def api_battery_status():
     """Get current battery status from latest driver sync."""
     global battery_automation_enabled
 
-    battery = latest_channels.get("battery", {})
-    if not battery:
+    soc = get_channel_value(latest_channels, "battery_soc")
+    if soc is None:
         return {"configured": False, "automation_enabled": battery_automation_enabled}
 
     now = datetime.now(LOCAL_TZ)
@@ -420,11 +412,11 @@ async def api_battery_status():
 
     return {
         "configured": True,
-        "soc": battery.get("soc"),
-        "watts_in": battery.get("watts_in", 0),
-        "watts_out": battery.get("watts_out", 0),
-        "charging": battery.get("charging", False),
-        "discharging": battery.get("discharging", False),
+        "soc": soc,
+        "watts_in": get_channel_value(latest_channels, "battery_watts_in") or 0,
+        "watts_out": get_channel_value(latest_channels, "battery_watts_out") or 0,
+        "charging": get_channel_value(latest_channels, "battery_charging") or False,
+        "discharging": get_channel_value(latest_channels, "battery_discharging") or False,
         "tou_period": period,
         "automation_enabled": battery_automation_enabled,
     }
@@ -444,23 +436,23 @@ async def set_target(data: dict):
     """Set target temperature."""
     temp = data.get("temp", 70)
     temp = max(41, min(95, int(temp)))
-    user_setpoints["heater"]["target_temp_f"] = temp
+    user_targets["heater_target_temp"] = temp
     return {"target_temp_f": temp}
 
 
 @app.post("/api/power/toggle")
 async def toggle_power():
-    """Toggle heater power (updates setpoint for next driver sync)."""
-    current = user_setpoints.get("heater", {}).get("power", True)
-    user_setpoints.setdefault("heater", {})["power"] = not current
+    """Toggle heater power (updates target for next driver sync)."""
+    current = user_targets.get("heater_power", True)
+    user_targets["heater_power"] = not current
     return {"power": not current}
 
 
 @app.post("/api/oscillation/toggle")
 async def toggle_oscillation():
-    """Toggle oscillation (updates setpoint for next driver sync)."""
-    current = user_setpoints.get("heater", {}).get("oscillation", False)
-    user_setpoints.setdefault("heater", {})["oscillation"] = not current
+    """Toggle oscillation (updates target for next driver sync)."""
+    current = user_targets.get("heater_oscillation", False)
+    user_targets["heater_oscillation"] = not current
     return {"oscillation": not current}
 
 
