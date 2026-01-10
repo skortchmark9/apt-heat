@@ -290,6 +290,13 @@ def calculate_targets():
     if automation_mode == "manual":
         return targets
 
+    # SAFETY: Low battery protection
+    # If SoC drops to 5% or below, turn off heater to avoid abrupt 3% cutoff
+    battery_soc = get_channel_value(latest_channels, "battery_soc")
+    low_battery = battery_soc is not None and battery_soc <= 5
+    if low_battery:
+        print(f"[SAFETY] Battery low ({battery_soc}%), disabling heater")
+
     # TOU automation mode
     desired_temp = user_targets.get("heater_target_temp", 70)
 
@@ -331,6 +338,11 @@ def calculate_targets():
         targets["heater_target_temp"] = desired_temp
         targets["heater_heat_mode"] = "High"
         offpeak_state = "heating"  # Reset for next off-peak
+
+    # Low battery override - turn off heater regardless of other logic
+    if low_battery:
+        targets["heater_power"] = False
+        targets["low_battery_override"] = True
 
     return targets
 
