@@ -13,6 +13,9 @@ class AppSettings(Base):
     __tablename__ = "app_settings"
 
     id = Column(Integer, primary_key=True, default=1)
+    driver_control_enabled = Column(Boolean, default=True)  # Master kill switch
+    automation_mode = Column(String, default="tou")  # "manual" | "tou"
+    # Legacy columns (kept for migration compatibility)
     battery_automation_enabled = Column(Boolean, default=True)
     heater_automation_enabled = Column(Boolean, default=True)
 

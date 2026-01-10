@@ -32,9 +32,21 @@ def run_migrations(engine):
     with engine.connect() as conn:
         inspector = inspect(engine)
 
-        # Add heater_automation_enabled column if missing
         if 'app_settings' in inspector.get_table_names():
             columns = [c['name'] for c in inspector.get_columns('app_settings')]
+
+            # Add new columns if missing
+            if 'driver_control_enabled' not in columns:
+                conn.execute(text('ALTER TABLE app_settings ADD COLUMN driver_control_enabled BOOLEAN DEFAULT TRUE'))
+                conn.commit()
+                print("[MIGRATION] Added driver_control_enabled column")
+
+            if 'automation_mode' not in columns:
+                conn.execute(text("ALTER TABLE app_settings ADD COLUMN automation_mode VARCHAR DEFAULT 'tou'"))
+                conn.commit()
+                print("[MIGRATION] Added automation_mode column")
+
+            # Legacy migration (keep for backwards compat)
             if 'heater_automation_enabled' not in columns:
                 conn.execute(text('ALTER TABLE app_settings ADD COLUMN heater_automation_enabled BOOLEAN DEFAULT TRUE'))
                 conn.commit()
@@ -53,8 +65,8 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Global state (loaded from DB)
-battery_automation_enabled = True
-heater_automation_enabled = True
+driver_control_enabled = True  # Master kill switch - driver ignores targets if False
+automation_mode = "tou"  # "manual" | "tou"
 
 # Cache of latest channel data from driver
 latest_channels = {}
@@ -74,16 +86,19 @@ def load_settings():
     try:
         settings = db.query(AppSettings).filter(AppSettings.id == 1).first()
         if settings is None:
-            settings = AppSettings(id=1, battery_automation_enabled=True, heater_automation_enabled=True)
+            settings = AppSettings(id=1, driver_control_enabled=True, automation_mode="tou")
             db.add(settings)
             db.commit()
-            return True, True
-        return settings.battery_automation_enabled, settings.heater_automation_enabled
+            return True, "tou"
+        return (
+            getattr(settings, 'driver_control_enabled', True),
+            getattr(settings, 'automation_mode', 'tou')
+        )
     finally:
         db.close()
 
 
-def save_settings(battery_enabled: bool = None, heater_enabled: bool = None):
+def save_settings(driver_enabled: bool = None, mode: str = None):
     """Save app settings to database."""
     db = SessionLocal()
     try:
@@ -91,10 +106,10 @@ def save_settings(battery_enabled: bool = None, heater_enabled: bool = None):
         if settings is None:
             settings = AppSettings(id=1)
             db.add(settings)
-        if battery_enabled is not None:
-            settings.battery_automation_enabled = battery_enabled
-        if heater_enabled is not None:
-            settings.heater_automation_enabled = heater_enabled
+        if driver_enabled is not None:
+            settings.driver_control_enabled = driver_enabled
+        if mode is not None:
+            settings.automation_mode = mode
         db.commit()
     finally:
         db.close()
@@ -193,16 +208,21 @@ user_targets = {
     "heater_oscillation": False,
     "heater_display": True,
     "plug_on": True,
+    "battery_charge_power": 300,
 }
 
 
 def calculate_targets():
     """
-    Calculate current targets based on schedules and automation settings.
+    Calculate current targets based on automation mode.
+
+    Modes:
+      - "manual": Just return user targets, no automation
+      - "tou": Battery charges off-peak (300W), stops during peak (0W)
 
     Returns a flat dict of targets for the driver to apply.
     """
-    global battery_automation_enabled, heater_automation_enabled
+    global driver_control_enabled, automation_mode
 
     targets = {
         # Heater targets
@@ -213,27 +233,31 @@ def calculate_targets():
         # Plug targets
         "plug_on": user_targets.get("plug_on", True),
         # Battery targets
-        "battery_charge_power": 300,  # Default off-peak charging rate
+        "battery_charge_power": user_targets.get("battery_charge_power", 300),
     }
 
-    # Sleep schedule override for heater target
+    # Sleep schedule override for heater target (always active if set)
     sleep_target = get_sleep_target_temp()
     if sleep_target is not None:
         targets["heater_target_temp"] = sleep_target
         targets["heater_sleep_mode"] = True
 
-    # Battery automation based on TOU period
-    if battery_automation_enabled:
-        now = datetime.now(LOCAL_TZ)
-        period = get_tou_period(now)
-        if period == "off_peak":
-            targets["battery_charge_power"] = 300  # Charge during off-peak
-        else:
-            targets["battery_charge_power"] = 0  # Stop charging during peak
-        targets["battery_tou_period"] = period
+    # Apply automation mode
+    now = datetime.now(LOCAL_TZ)
+    period = get_tou_period(now)
+    targets["tou_period"] = period
 
-    targets["battery_automation_enabled"] = battery_automation_enabled
-    targets["heater_automation_enabled"] = heater_automation_enabled
+    if automation_mode == "tou":
+        # TOU mode: battery charges during off-peak, stops during peak
+        if period == "off_peak":
+            targets["battery_charge_power"] = 300
+        else:
+            targets["battery_charge_power"] = 0
+    # elif automation_mode == "manual": just use user_targets as-is
+
+    # Include mode info for driver/UI
+    targets["driver_control_enabled"] = driver_control_enabled
+    targets["automation_mode"] = automation_mode
 
     return targets
 
@@ -245,7 +269,7 @@ def calculate_targets():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize on startup."""
-    global battery_automation_enabled, heater_automation_enabled
+    global driver_control_enabled, automation_mode
 
     # Run migrations for existing databases
     run_migrations(engine)
@@ -254,9 +278,9 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
 
     # Load settings from DB
-    battery_automation_enabled, heater_automation_enabled = load_settings()
-    print(f"Battery automation: {'enabled' if battery_automation_enabled else 'DISABLED'}")
-    print(f"Heater automation: {'enabled' if heater_automation_enabled else 'DISABLED'}")
+    driver_control_enabled, automation_mode = load_settings()
+    print(f"Driver control: {'enabled' if driver_control_enabled else 'DISABLED'}")
+    print(f"Automation mode: {automation_mode}")
 
     yield
 
@@ -401,11 +425,11 @@ async def get_status():
 @app.get("/api/battery")
 async def api_battery_status():
     """Get current battery status from latest driver sync."""
-    global battery_automation_enabled
+    global automation_mode
 
     soc = get_channel_value(latest_channels, "battery_soc")
     if soc is None:
-        return {"configured": False, "automation_enabled": battery_automation_enabled}
+        return {"configured": False, "automation_mode": automation_mode}
 
     now = datetime.now(LOCAL_TZ)
     period = get_tou_period(now)
@@ -418,17 +442,39 @@ async def api_battery_status():
         "charging": get_channel_value(latest_channels, "battery_charging") or False,
         "discharging": get_channel_value(latest_channels, "battery_discharging") or False,
         "tou_period": period,
-        "automation_enabled": battery_automation_enabled,
+        "automation_mode": automation_mode,
     }
 
 
-@app.post("/api/battery/automation/toggle")
-async def toggle_battery_automation():
-    """Toggle battery automation on/off."""
-    global battery_automation_enabled
-    battery_automation_enabled = not battery_automation_enabled
-    save_settings(battery_enabled=battery_automation_enabled)
-    return {"automation_enabled": battery_automation_enabled}
+@app.get("/api/settings")
+async def get_settings():
+    """Get current automation settings."""
+    global driver_control_enabled, automation_mode
+    return {
+        "driver_control_enabled": driver_control_enabled,
+        "automation_mode": automation_mode,
+    }
+
+
+@app.post("/api/settings/driver-control")
+async def set_driver_control(data: dict):
+    """Enable/disable driver control (master kill switch)."""
+    global driver_control_enabled
+    driver_control_enabled = data.get("enabled", True)
+    save_settings(driver_enabled=driver_control_enabled)
+    return {"driver_control_enabled": driver_control_enabled}
+
+
+@app.post("/api/settings/mode")
+async def set_automation_mode(data: dict):
+    """Set automation mode: 'manual' or 'tou'."""
+    global automation_mode
+    mode = data.get("mode", "tou")
+    if mode not in ("manual", "tou"):
+        mode = "tou"
+    automation_mode = mode
+    save_settings(mode=automation_mode)
+    return {"automation_mode": automation_mode}
 
 
 @app.post("/api/target")
