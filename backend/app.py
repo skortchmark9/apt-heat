@@ -24,6 +24,22 @@ from rates import calculate_savings_from_readings, get_tou_period, get_rate_for_
 
 load_dotenv()
 
+
+def run_migrations(engine):
+    """Run schema migrations for existing databases."""
+    from sqlalchemy import text, inspect
+
+    with engine.connect() as conn:
+        inspector = inspect(engine)
+
+        # Add heater_automation_enabled column if missing
+        if 'app_settings' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('app_settings')]
+            if 'heater_automation_enabled' not in columns:
+                conn.execute(text('ALTER TABLE app_settings ADD COLUMN heater_automation_enabled BOOLEAN DEFAULT TRUE'))
+                conn.commit()
+                print("[MIGRATION] Added heater_automation_enabled column")
+
 # Timezone for sleep schedule (user's local time)
 LOCAL_TZ = ZoneInfo("America/New_York")
 
@@ -242,7 +258,10 @@ async def lifespan(app: FastAPI):
     """Initialize on startup."""
     global battery_automation_enabled, heater_automation_enabled
 
-    # Create tables
+    # Run migrations for existing databases
+    run_migrations(engine)
+
+    # Create tables (for new databases)
     Base.metadata.create_all(bind=engine)
 
     # Load settings from DB
