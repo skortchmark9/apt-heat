@@ -297,6 +297,16 @@ class Driver:
             except Exception as e:
                 print(f"  [heater] set error: {e}")
 
+        if 'heater_heat_mode' in targets and self.heater:
+            try:
+                target = targets['heater_heat_mode']
+                current = self.slate.get('heater_heat_mode')
+                if target != current:
+                    self.heater.set_heat_mode(target)
+                    print(f"  [heater] set heat_mode: {target}")
+            except Exception as e:
+                print(f"  [heater] set error: {e}")
+
         # Plug targets
         if 'plug_on' in targets and self.plug:
             try:

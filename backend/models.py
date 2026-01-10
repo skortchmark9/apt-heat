@@ -15,6 +15,7 @@ class AppSettings(Base):
     id = Column(Integer, primary_key=True, default=1)
     driver_control_enabled = Column(Boolean, default=True)  # Master kill switch
     automation_mode = Column(String, default="tou")  # "manual" | "tou"
+    user_targets_json = Column(Text)  # JSON blob of user setpoints
     # Legacy columns (kept for migration compatibility)
     battery_automation_enabled = Column(Boolean, default=True)
     heater_automation_enabled = Column(Boolean, default=True)

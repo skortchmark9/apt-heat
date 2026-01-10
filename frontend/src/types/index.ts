@@ -87,5 +87,7 @@ export interface BatteryStatus {
   charge_limit?: number;
   tou_period?: string;
   charge_state?: string;
-  automation_enabled?: boolean;
+  target_charge_power?: number;
+  automation_mode?: 'manual' | 'tou';
+  driver_control_enabled?: boolean;
 }

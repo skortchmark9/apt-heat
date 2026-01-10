@@ -24,6 +24,33 @@ from rates import calculate_savings_from_readings, get_tou_period, get_rate_for_
 
 load_dotenv()
 
+# Weather config (NYC default)
+WEATHER_LAT = float(os.getenv("WEATHER_LAT", "40.81"))
+WEATHER_LON = float(os.getenv("WEATHER_LON", "-73.95"))
+_cached_outdoor_temp = None
+_cached_outdoor_temp_time = None
+
+
+def get_outdoor_temp() -> int | None:
+    """Fetch outdoor temp from Open-Meteo, cached for 5 minutes."""
+    global _cached_outdoor_temp, _cached_outdoor_temp_time
+    import urllib.request
+
+    now = datetime.utcnow()
+    if _cached_outdoor_temp_time and (now - _cached_outdoor_temp_time).seconds < 300:
+        return _cached_outdoor_temp
+
+    try:
+        url = f"https://api.open-meteo.com/v1/forecast?latitude={WEATHER_LAT}&longitude={WEATHER_LON}&current=temperature_2m&temperature_unit=fahrenheit"
+        with urllib.request.urlopen(url, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            _cached_outdoor_temp = int(round(data["current"]["temperature_2m"]))
+            _cached_outdoor_temp_time = now
+            return _cached_outdoor_temp
+    except Exception as e:
+        print(f"[WEATHER] fetch error: {e}")
+        return _cached_outdoor_temp  # Return stale cache on error
+
 
 def run_migrations(engine):
     """Run schema migrations for existing databases."""
@@ -45,6 +72,11 @@ def run_migrations(engine):
                 conn.execute(text("ALTER TABLE app_settings ADD COLUMN automation_mode VARCHAR DEFAULT 'tou'"))
                 conn.commit()
                 print("[MIGRATION] Added automation_mode column")
+
+            if 'user_targets_json' not in columns:
+                conn.execute(text("ALTER TABLE app_settings ADD COLUMN user_targets_json TEXT"))
+                conn.commit()
+                print("[MIGRATION] Added user_targets_json column")
 
             # Legacy migration (keep for backwards compat)
             if 'heater_automation_enabled' not in columns:
@@ -68,6 +100,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 driver_control_enabled = True  # Master kill switch - driver ignores targets if False
 automation_mode = "tou"  # "manual" | "tou"
 
+# Bang-bang controller state for off-peak: "heating" or "charging"
+offpeak_state = "heating"
+
 # Cache of latest channel data from driver
 latest_channels = {}
 
@@ -89,16 +124,26 @@ def load_settings():
             settings = AppSettings(id=1, driver_control_enabled=True, automation_mode="tou")
             db.add(settings)
             db.commit()
-            return True, "tou"
+            return True, "tou", {}
+
+        # Parse user_targets_json
+        saved_targets = {}
+        if getattr(settings, 'user_targets_json', None):
+            try:
+                saved_targets = json.loads(settings.user_targets_json)
+            except:
+                pass
+
         return (
             getattr(settings, 'driver_control_enabled', True),
-            getattr(settings, 'automation_mode', 'tou')
+            getattr(settings, 'automation_mode', 'tou'),
+            saved_targets
         )
     finally:
         db.close()
 
 
-def save_settings(driver_enabled: bool = None, mode: str = None):
+def save_settings(driver_enabled: bool = None, mode: str = None, targets: dict = None):
     """Save app settings to database."""
     db = SessionLocal()
     try:
@@ -110,6 +155,8 @@ def save_settings(driver_enabled: bool = None, mode: str = None):
             settings.driver_control_enabled = driver_enabled
         if mode is not None:
             settings.automation_mode = mode
+        if targets is not None:
+            settings.user_targets_json = json.dumps(targets)
         db.commit()
     finally:
         db.close()
@@ -217,47 +264,73 @@ def calculate_targets():
     Calculate current targets based on automation mode.
 
     Modes:
-      - "manual": Just return user targets, no automation
-      - "tou": Battery charges off-peak (300W), stops during peak (0W)
+      - "manual": Don't send device targets - let devices keep current state
+      - "tou": Bang-bang controller during off-peak:
+          HEATING state: charge=0, heat_mode=High, target=desired
+          CHARGING state: charge=1500W, target=desired-3 (heater off)
+          Transitions based on current_temp vs desired temp
 
     Returns a flat dict of targets for the driver to apply.
     """
-    global driver_control_enabled, automation_mode
+    global driver_control_enabled, automation_mode, offpeak_state
 
+    now = datetime.now(LOCAL_TZ)
+    period = get_tou_period(now)
+
+    # Base targets - always include mode info
     targets = {
-        # Heater targets
-        "heater_power": user_targets.get("heater_power", True),
-        "heater_target_temp": user_targets.get("heater_target_temp", 70),
-        "heater_oscillation": user_targets.get("heater_oscillation", False),
-        "heater_display": user_targets.get("heater_display", True),
-        # Plug targets
+        "tou_period": period,
+        "driver_control_enabled": driver_control_enabled,
+        "automation_mode": automation_mode,
+        # Plug is always controlled (user toggle)
         "plug_on": user_targets.get("plug_on", True),
-        # Battery targets
-        "battery_charge_power": user_targets.get("battery_charge_power", 300),
     }
+
+    # In manual mode, don't send device targets - just let things be
+    if automation_mode == "manual":
+        return targets
+
+    # TOU automation mode
+    desired_temp = user_targets.get("heater_target_temp", 70)
 
     # Sleep schedule override for heater target (always active if set)
     sleep_target = get_sleep_target_temp()
     if sleep_target is not None:
-        targets["heater_target_temp"] = sleep_target
+        desired_temp = sleep_target
         targets["heater_sleep_mode"] = True
 
-    # Apply automation mode
-    now = datetime.now(LOCAL_TZ)
-    period = get_tou_period(now)
-    targets["tou_period"] = period
+    if period == "off_peak":
+        # Bang-bang controller: alternate between heating and charging
+        current_temp = get_channel_value(latest_channels, "heater_current_temp")
 
-    if automation_mode == "tou":
-        # TOU mode: battery charges during off-peak, stops during peak
-        if period == "off_peak":
-            targets["battery_charge_power"] = 300
-        else:
+        if current_temp is not None:
+            # State transitions
+            if offpeak_state == "heating" and current_temp >= desired_temp:
+                offpeak_state = "charging"
+                print(f"[AUTOMATION] Transition: HEATING -> CHARGING (temp={current_temp}°F >= desired={desired_temp}°F)")
+            elif offpeak_state == "charging" and current_temp <= desired_temp - 2:
+                offpeak_state = "heating"
+                print(f"[AUTOMATION] Transition: CHARGING -> HEATING (temp={current_temp}°F <= {desired_temp - 2}°F)")
+
+        # Apply state
+        if offpeak_state == "heating":
+            # HEATING: no charging, heat at full blast
             targets["battery_charge_power"] = 0
-    # elif automation_mode == "manual": just use user_targets as-is
+            targets["heater_target_temp"] = desired_temp
+            targets["heater_heat_mode"] = "High"
+        else:
+            # CHARGING: max charging, heater target low to keep it off
+            targets["battery_charge_power"] = 1500
+            targets["heater_target_temp"] = desired_temp - 3
+            targets["heater_heat_mode"] = "High"
 
-    # Include mode info for driver/UI
-    targets["driver_control_enabled"] = driver_control_enabled
-    targets["automation_mode"] = automation_mode
+        targets["offpeak_state"] = offpeak_state
+    else:
+        # Peak: no charging, normal heating
+        targets["battery_charge_power"] = 0
+        targets["heater_target_temp"] = desired_temp
+        targets["heater_heat_mode"] = "High"
+        offpeak_state = "heating"  # Reset for next off-peak
 
     return targets
 
@@ -269,7 +342,7 @@ def calculate_targets():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize on startup."""
-    global driver_control_enabled, automation_mode
+    global driver_control_enabled, automation_mode, user_targets
 
     # Run migrations for existing databases
     run_migrations(engine)
@@ -278,9 +351,12 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
 
     # Load settings from DB
-    driver_control_enabled, automation_mode = load_settings()
+    driver_control_enabled, automation_mode, saved_targets = load_settings()
+    if saved_targets:
+        user_targets.update(saved_targets)
     print(f"Driver control: {'enabled' if driver_control_enabled else 'DISABLED'}")
     print(f"Automation mode: {automation_mode}")
+    print(f"User targets: {user_targets}")
 
     yield
 
@@ -342,7 +418,7 @@ async def driver_sync(request: Request):
             timer_remaining_sec=get_channel_value(channels, "heater_timer_value"),
             energy_kwh=get_channel_value(channels, "heater_energy_kwh"),
             fault_code=get_channel_value(channels, "heater_fault_code"),
-            outdoor_temp_f=get_channel_value(channels, "weather_outdoor_temp"),
+            outdoor_temp_f=get_outdoor_temp(),
         )
         db.add(reading)
         db.commit()
@@ -409,40 +485,62 @@ async def get_readings(
 
 @app.get("/api/status")
 async def get_status():
-    """Get current status from latest driver sync."""
+    """Get current status: device state from driver + server's targets.
+
+    Returns both so UI can show current state AND update targets immediately.
+    """
+    # Get current targets from server (updates immediately when user changes)
+    targets = calculate_targets()
+
     return {
+        # Current device state (from driver)
         "power": get_channel_value(latest_channels, "heater_power"),
         "current_temp_f": get_channel_value(latest_channels, "heater_current_temp"),
-        "target_temp_f": get_channel_value(latest_channels, "heater_target_temp"),
         "heat_mode": get_channel_value(latest_channels, "heater_heat_mode"),
         "active_heat_level": get_channel_value(latest_channels, "heater_active_heat_level"),
         "power_watts": get_channel_value(latest_channels, "battery_watts_out") or 0,
-        "oscillation": get_channel_value(latest_channels, "heater_oscillation"),
-        "display": get_channel_value(latest_channels, "heater_display"),
+        # Server's current targets (updates immediately)
+        "target_temp_f": targets.get("heater_target_temp"),
+        "target_power": targets.get("heater_power"),
+        "oscillation": targets.get("heater_oscillation"),
+        "display": targets.get("heater_display"),
+        # Mode info
+        "driver_control_enabled": targets.get("driver_control_enabled"),
+        "automation_mode": targets.get("automation_mode"),
+        "tou_period": targets.get("tou_period"),
+        "sleep_mode": targets.get("heater_sleep_mode", False),
+        # Weather
+        "outdoor_temp_f": get_outdoor_temp(),
     }
 
 
 @app.get("/api/battery")
 async def api_battery_status():
-    """Get current battery status from latest driver sync."""
-    global automation_mode
+    """Get current battery status: device state from driver + server's targets."""
+    targets = calculate_targets()
 
     soc = get_channel_value(latest_channels, "battery_soc")
     if soc is None:
-        return {"configured": False, "automation_mode": automation_mode}
-
-    now = datetime.now(LOCAL_TZ)
-    period = get_tou_period(now)
+        return {
+            "configured": False,
+            "target_charge_power": targets.get("battery_charge_power"),
+            "automation_mode": targets.get("automation_mode"),
+            "tou_period": targets.get("tou_period"),
+        }
 
     return {
         "configured": True,
+        # Current device state (from driver)
         "soc": soc,
         "watts_in": get_channel_value(latest_channels, "battery_watts_in") or 0,
         "watts_out": get_channel_value(latest_channels, "battery_watts_out") or 0,
         "charging": get_channel_value(latest_channels, "battery_charging") or False,
         "discharging": get_channel_value(latest_channels, "battery_discharging") or False,
-        "tou_period": period,
-        "automation_mode": automation_mode,
+        # Server's current targets (updates immediately)
+        "target_charge_power": targets.get("battery_charge_power"),
+        "automation_mode": targets.get("automation_mode"),
+        "tou_period": targets.get("tou_period"),
+        "driver_control_enabled": targets.get("driver_control_enabled"),
     }
 
 
@@ -483,6 +581,7 @@ async def set_target(data: dict):
     temp = data.get("temp", 70)
     temp = max(41, min(95, int(temp)))
     user_targets["heater_target_temp"] = temp
+    save_settings(targets=user_targets)
     return {"target_temp_f": temp}
 
 
@@ -491,6 +590,7 @@ async def toggle_power():
     """Toggle heater power (updates target for next driver sync)."""
     current = user_targets.get("heater_power", True)
     user_targets["heater_power"] = not current
+    save_settings(targets=user_targets)
     return {"power": not current}
 
 
@@ -499,7 +599,28 @@ async def toggle_oscillation():
     """Toggle oscillation (updates target for next driver sync)."""
     current = user_targets.get("heater_oscillation", False)
     user_targets["heater_oscillation"] = not current
+    save_settings(targets=user_targets)
     return {"oscillation": not current}
+
+
+@app.post("/api/plug/toggle")
+async def toggle_plug():
+    """Toggle plug power (updates target for next driver sync)."""
+    current = user_targets.get("plug_on", True)
+    user_targets["plug_on"] = not current
+    save_settings(targets=user_targets)
+    return {"plug_on": not current}
+
+
+@app.get("/api/plug")
+async def get_plug_status():
+    """Get current plug status."""
+    plug_on = get_channel_value(latest_channels, "plug_on")
+    target_plug_on = user_targets.get("plug_on", True)
+    return {
+        "on": plug_on,
+        "target_on": target_plug_on,
+    }
 
 
 @app.post("/api/sleep")
