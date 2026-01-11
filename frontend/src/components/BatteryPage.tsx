@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useBatteryStatus } from '../hooks/useBatteryStatus';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, ReferenceLine, Tooltip } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 function ToggleSwitch({ enabled, onToggle, loading }: { enabled: boolean; onToggle: () => void; loading: boolean }) {
   return (
@@ -25,9 +25,10 @@ interface Reading {
   current_temp_f: number | null;
   target_temp_f: number | null;
   power_watts: number | null;
+  battery_soc: number | null;
 }
 
-function HistoryChart() {
+function HistoryCharts() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -70,92 +71,105 @@ function HistoryChart() {
   // Format data for chart
   const chartData = readings.map((r) => ({
     time: new Date(r.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-    temp: r.current_temp_f,
-    target: r.target_temp_f,
-    watts: r.power_watts ? r.power_watts / 20 : null, // Scale watts to fit on temp axis
+    soc: r.battery_soc,
+    watts: r.power_watts,
   }));
 
-  // Get current target for reference line
-  const currentTarget = readings[readings.length - 1]?.target_temp_f;
+  const tooltipStyle = {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    border: 'none',
+    borderRadius: '8px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+  };
 
   return (
-    <div className="h-48">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
-          <XAxis
-            dataKey="time"
-            tick={{ fontSize: 10, fill: '#9ca3af' }}
-            tickLine={false}
-            axisLine={false}
-            interval="preserveStartEnd"
-          />
-          <YAxis
-            domain={['dataMin - 2', 'dataMax + 2']}
-            tick={{ fontSize: 10, fill: '#9ca3af' }}
-            tickLine={false}
-            axisLine={false}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: 'rgba(255,255,255,0.95)',
-              border: 'none',
-              borderRadius: '8px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-            }}
-            formatter={(value: number, name: string) => {
-              if (name === 'watts') return [`${Math.round(value * 20)}W`, 'Power'];
-              return [`${value}°F`, name === 'temp' ? 'Room' : 'Target'];
-            }}
-          />
-          {currentTarget && (
-            <ReferenceLine
-              y={currentTarget}
-              stroke="#22c55e"
-              strokeDasharray="3 3"
-              strokeOpacity={0.7}
-            />
-          )}
-          <Line
-            type="monotone"
-            dataKey="temp"
-            stroke="#f97316"
-            strokeWidth={2}
-            dot={false}
-            name="temp"
-          />
-          <Line
-            type="stepAfter"
-            dataKey="target"
-            stroke="#22c55e"
-            strokeWidth={1.5}
-            strokeOpacity={0.5}
-            dot={false}
-            name="target"
-          />
-          <Line
-            type="monotone"
-            dataKey="watts"
-            stroke="#3b82f6"
-            strokeWidth={1.5}
-            strokeOpacity={0.4}
-            dot={false}
-            name="watts"
-          />
-        </LineChart>
-      </ResponsiveContainer>
-      <div className="flex justify-center gap-4 mt-2 text-xs">
-        <span className="flex items-center gap-1">
-          <span className="w-3 h-0.5 bg-orange-500 rounded"></span>
-          <span className="text-gray-500">Room</span>
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-3 h-0.5 bg-green-500 rounded opacity-50"></span>
-          <span className="text-gray-500">Target</span>
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="w-3 h-0.5 bg-blue-500 rounded opacity-40"></span>
-          <span className="text-gray-500">Power</span>
-        </span>
+    <div className="space-y-4">
+      {/* Battery SOC Chart */}
+      <div>
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-xs text-gray-500">Battery Level</span>
+          <div className="flex gap-3 text-xs">
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-0.5 bg-emerald-500 rounded"></span>
+              <span className="text-gray-500">SOC %</span>
+            </span>
+          </div>
+        </div>
+        <div className="h-28">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+              <XAxis
+                dataKey="time"
+                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                tickLine={false}
+                axisLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                domain={[0, 100]}
+                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                formatter={(value: number) => [`${value}%`, 'Battery']}
+              />
+              <Line
+                type="monotone"
+                dataKey="soc"
+                stroke="#10b981"
+                strokeWidth={2}
+                dot={false}
+                name="soc"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Power Chart */}
+      <div>
+        <div className="flex justify-between items-center mb-2">
+          <span className="text-xs text-gray-500">Power</span>
+          <div className="flex gap-3 text-xs">
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-0.5 bg-blue-500 rounded"></span>
+              <span className="text-gray-500">Watts</span>
+            </span>
+          </div>
+        </div>
+        <div className="h-24">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+              <XAxis
+                dataKey="time"
+                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                tickLine={false}
+                axisLine={false}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                domain={[0, 'dataMax + 100']}
+                tick={{ fontSize: 10, fill: '#9ca3af' }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                formatter={(value: number) => [`${value}W`, 'Power']}
+              />
+              <Line
+                type="stepAfter"
+                dataKey="watts"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={false}
+                name="watts"
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -433,7 +447,7 @@ export function BatteryPage() {
       <div className="px-6 -mt-4">
         <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
           <h3 className="text-sm font-medium text-gray-500 mb-2">Last 4 Hours</h3>
-          <HistoryChart />
+          <HistoryCharts />
         </div>
 
         {/* Power Flow */}

@@ -65,6 +65,11 @@ export function TemperatureChart({ readings, hours, onHoursChange }: Temperature
       </div>
 
       <div className="bg-white rounded-2xl p-4 mt-4">
+        {chartData.length === 0 ? (
+          <div className="h-[200px] flex items-center justify-center text-gray-400 text-sm">
+            No readings in last {hours}h
+          </div>
+        ) : (
         <ResponsiveContainer width="100%" height={200}>
           <ComposedChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
             <defs>
@@ -128,6 +133,7 @@ export function TemperatureChart({ readings, hours, onHoursChange }: Temperature
             />
           </ComposedChart>
         </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

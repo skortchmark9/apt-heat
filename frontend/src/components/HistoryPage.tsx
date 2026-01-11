@@ -92,11 +92,11 @@ export function HistoryPage() {
           <h3 className="text-sm font-medium text-gray-500 mb-4">Daily Breakdown</h3>
           <div className="space-y-2">
             {(() => {
-              const daysWithData = history?.days.filter(day => day.total_kwh > 0) || [];
+              const days = history?.days || [];
               const today = new Date().toISOString().split('T')[0];
               const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-              return daysWithData.map((day) => {
+              return days.map((day) => {
                 const date = new Date(day.date + 'T12:00:00');
                 const dayLabel = day.date === today ? 'Today'
                   : day.date === yesterday ? 'Yesterday'

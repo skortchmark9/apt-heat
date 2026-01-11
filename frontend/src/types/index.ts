@@ -15,6 +15,7 @@ export interface HeaterStatus {
   timer_remaining_sec: number | null;
   energy_kwh: number | null;
   fault_code: number | null;
+  outdoor_temp_f: number | null;
 }
 
 export interface HeaterReading {

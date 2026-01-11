@@ -26,7 +26,7 @@ export function HomePage() {
     cancelSleepMode,
   } = useHeaterStatus();
 
-  const { readings, latestOutdoorTemp, latestTimestamp, isStale } = useReadings(chartHours);
+  const { readings, latestTimestamp, isStale } = useReadings(chartHours);
   const { status: batteryStatus } = useBatteryStatus();
 
   // Handlers
@@ -70,7 +70,7 @@ export function HomePage() {
 
       <HomeGrid
         status={status}
-        outdoorTemp={latestOutdoorTemp}
+        outdoorTemp={status?.outdoor_temp_f ?? null}
         powerWatts={batteryStatus?.watts_out ?? 0}
         onTempUp={handleTempUp}
         onTempDown={handleTempDown}

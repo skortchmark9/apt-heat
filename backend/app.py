@@ -991,16 +991,26 @@ async def get_stats_history(
     db: Session = Depends(get_db)
 ):
     """
-    Get daily stats for the past N days plus streak count.
+    Get daily stats from today back to the first day with data.
 
     Returns list of daily stats and current savings streak.
     """
     today = datetime.now(LOCAL_TZ).date()
     poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
 
+    # Find the first day with data
+    first_reading = db.query(HeaterReading).order_by(HeaterReading.timestamp).first()
+    if first_reading:
+        first_day = first_reading.timestamp.date()
+        # Limit to requested days or days since first reading, whichever is smaller
+        days_since_first = (today - first_day).days + 1
+        days = min(days, days_since_first)
+    else:
+        days = 1  # No data, just show today
+
     daily_stats = []
 
-    # Compute stats for each day
+    # Compute stats for each day from today back to first day with data
     for days_ago in range(days):
         day = today - timedelta(days=days_ago)
 

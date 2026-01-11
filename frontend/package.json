@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:prod": "API_URL=https://apt-heat-production.up.railway.app vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

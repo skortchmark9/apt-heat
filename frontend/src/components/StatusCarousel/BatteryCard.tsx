@@ -1,8 +1,33 @@
+import { useBatteryStatus } from '../../hooks/useBatteryStatus';
+
 export function BatteryCard() {
-  // TODO: Connect to EcoFlow API
-  const batteryPercent = '--';
-  const power = '-- W';
-  const status = 'Not connected';
+  const { status, loading } = useBatteryStatus();
+
+  const soc = status?.soc;
+  const wattsIn = status?.watts_in ?? 0;
+  const wattsOut = status?.watts_out ?? 0;
+  const netFlow = wattsIn - wattsOut;
+
+  const batteryPercent = soc != null ? soc : '--';
+
+  let power = '-- W';
+  let statusText = 'Not connected';
+
+  if (status?.configured && !loading) {
+    if (netFlow > 50) {
+      power = `+${netFlow} W`;
+      statusText = 'Charging';
+    } else if (netFlow < -50) {
+      power = `${netFlow} W`;
+      statusText = 'Discharging';
+    } else if (wattsIn > 0 && wattsOut > 0) {
+      power = `${wattsOut} W`;
+      statusText = 'Pass-through';
+    } else {
+      power = '0 W';
+      statusText = 'Idle';
+    }
+  }
 
   return (
     <div className="flex-[0_0_100%] snap-start bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl py-3.5 px-4 text-white shadow-[0_4px_20px_rgba(59,130,246,0.3)]">
@@ -21,7 +46,7 @@ export function BatteryCard() {
         </div>
         <div className="flex flex-col gap-1 text-sm opacity-90">
           <span id="battery-power">{power}</span>
-          <span id="battery-status">{status}</span>
+          <span id="battery-status">{statusText}</span>
         </div>
       </div>
     </div>
