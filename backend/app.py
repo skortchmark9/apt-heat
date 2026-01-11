@@ -410,7 +410,8 @@ def calculate_targets():
     if automation_mode == "manual":
         return targets
 
-    # TOU automation mode
+    # TOU automation mode - always include heater_power from user settings
+    targets["heater_power"] = user_targets.get("heater_power", True)
     desired_temp = user_targets.get("heater_target_temp", 70)
 
     # Sleep schedule override for heater target (always active if set)
