@@ -381,7 +381,9 @@ class Driver:
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                 elif cycle_time > self.period:
-                    print(f"  [warn] cycle took {cycle_time:.2f}s (> {self.period}s period)")
+                    print(f"  [warn] cycle {self.cycle} took {cycle_time:.2f}s (> {self.period}s period)")
+                if (self.cycle % 3) == 0:
+                    print(f"  [info] cycle {self.cycle} took {cycle_time:.2f}s")
 
             except KeyboardInterrupt:
                 print("\nShutting down...")
