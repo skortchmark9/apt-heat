@@ -776,6 +776,35 @@ async def get_plug_status():
     }
 
 
+@app.get("/api/channels")
+async def get_channels():
+    """Get all channels with current values and targets for debugging."""
+    targets = calculate_targets()
+
+    # Build channel list with current value and target (if any)
+    channels = []
+
+    # All known channel keys
+    channel_keys = set(latest_channels.keys()) | set(targets.keys())
+
+    for key in sorted(channel_keys):
+        current = get_channel_value(latest_channels, key)
+        target = targets.get(key)
+
+        # Get last updated time if available
+        ch_data = latest_channels.get(key, {})
+        last_updated = ch_data.get("last_updated") if isinstance(ch_data, dict) else None
+
+        channels.append({
+            "key": key,
+            "current": current,
+            "target": target,
+            "last_updated": last_updated,
+        })
+
+    return {"channels": channels}
+
+
 @app.post("/api/sleep")
 async def start_sleep_mode(data: dict):
     """Start sleep mode with a temperature curve."""
