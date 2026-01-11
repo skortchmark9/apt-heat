@@ -66,3 +66,6 @@ class HeaterReading(Base):
 
     # Weather
     outdoor_temp_f = Column(Integer)
+
+    # Battery
+    battery_soc = Column(Integer)

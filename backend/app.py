@@ -564,6 +564,7 @@ async def driver_sync(request: Request):
             energy_kwh=get_channel_value(channels, "heater_energy_kwh"),
             fault_code=get_channel_value(channels, "heater_fault_code"),
             outdoor_temp_f=get_outdoor_temp(),
+            battery_soc=get_channel_value(channels, "battery_soc"),
         )
         db.add(reading)
         db.commit()
@@ -631,6 +632,7 @@ async def get_readings(
             "power_watts": r.power_watts,
             "oscillation": r.oscillation,
             "outdoor_temp_f": r.outdoor_temp_f,
+            "battery_soc": r.battery_soc,
         }
         for r in readings
     ]
