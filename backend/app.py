@@ -598,13 +598,13 @@ async def driver_sync(request: Request):
 # =============================================================================
 
 @app.get("/", response_class=HTMLResponse)
-@app.get("/battery", response_class=HTMLResponse)
 async def dashboard():
     """Serve the React dashboard."""
     index_path = FRONTEND_DIR / "index.html"
     if index_path.exists():
         return FileResponse(index_path)
     return HTMLResponse("<h1>Frontend not built</h1><p>Run npm build in frontend/</p>")
+
 
 
 # =============================================================================
@@ -1062,3 +1062,16 @@ async def get_stats_history(
         "month_savings": round(month_savings, 2),
         "month_kwh": round(month_kwh, 2),
     }
+
+
+# =============================================================================
+# SPA CATCH-ALL (must be last)
+# =============================================================================
+
+@app.get("/{path:path}", response_class=HTMLResponse)
+async def spa_catchall(path: str):
+    """Serve index.html for any non-API route so React Router can handle it."""
+    index_path = FRONTEND_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+    return HTMLResponse(status_code=404)
