@@ -407,13 +407,26 @@ export function BatteryPage() {
   const wattsIn = status.watts_in ?? 0;
   const wattsOut = status.watts_out ?? 0;
   const touPeriod = status.tou_period ?? 'unknown';
+  // Convert BMS temp from C to F
+  const bmsTempC = status.bms_temp_c;
+  const bmsTempF = bmsTempC != null ? Math.round(bmsTempC * 9/5 + 32) : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-white px-6 pt-6 pb-8">
-        <div className="text-sm opacity-90 mb-1">EcoFlow Delta Pro</div>
-        <div className="text-3xl font-bold">Battery Status</div>
+        <div className="flex justify-between items-start">
+          <div>
+            <div className="text-sm opacity-90 mb-1">EcoFlow Delta Pro</div>
+            <div className="text-3xl font-bold">Battery Status</div>
+          </div>
+          {bmsTempF != null && (
+            <div className="text-right">
+              <div className="text-2xl font-bold">{bmsTempF}°F</div>
+              <div className="text-xs opacity-75">BMS Temp</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* History Chart */}

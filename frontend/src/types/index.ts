@@ -90,4 +90,5 @@ export interface BatteryStatus {
   target_charge_power?: number;
   automation_mode?: 'manual' | 'tou';
   driver_control_enabled?: boolean;
+  bms_temp_c?: number;
 }
