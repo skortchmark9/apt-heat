@@ -84,6 +84,14 @@ def run_migrations(engine):
                 conn.commit()
                 print("[MIGRATION] Added heater_automation_enabled column")
 
+        # Add battery_soc to heater_readings if missing
+        if 'heater_readings' in inspector.get_table_names():
+            columns = [c['name'] for c in inspector.get_columns('heater_readings')]
+            if 'battery_soc' not in columns:
+                conn.execute(text('ALTER TABLE heater_readings ADD COLUMN battery_soc INTEGER'))
+                conn.commit()
+                print("[MIGRATION] Added battery_soc column to heater_readings")
+
 # Timezone for sleep schedule (user's local time)
 LOCAL_TZ = ZoneInfo("America/New_York")
 
