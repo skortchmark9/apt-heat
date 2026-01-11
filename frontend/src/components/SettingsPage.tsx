@@ -5,6 +5,12 @@ interface Channel {
   current: any;
   target: any;
   last_updated: string | null;
+  controllable?: boolean;
+}
+
+interface ChannelData {
+  device_channels: Channel[];
+  server_state: Channel[];
 }
 
 function formatValue(value: any): string {
@@ -14,76 +20,191 @@ function formatValue(value: any): string {
   return String(value);
 }
 
-function ChannelTable() {
-  const [channels, setChannels] = useState<Channel[]>([]);
+function EditableCell({ channel, onSave }: { channel: Channel; onSave: (key: string, value: any) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+
+  const startEdit = () => {
+    setValue(formatValue(channel.target ?? channel.current));
+    setEditing(true);
+  };
+
+  const save = () => {
+    let parsed: any = value;
+    // Try to parse as number
+    if (/^-?\d+$/.test(value)) {
+      parsed = parseInt(value, 10);
+    } else if (/^-?\d+\.\d+$/.test(value)) {
+      parsed = parseFloat(value);
+    } else if (value === 'true') {
+      parsed = true;
+    } else if (value === 'false') {
+      parsed = false;
+    }
+    onSave(channel.key, parsed);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="w-20 px-1 py-0.5 text-xs font-mono border rounded"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save();
+            if (e.key === 'Escape') cancel();
+          }}
+          autoFocus
+        />
+        <button onClick={save} className="text-green-600 text-xs">✓</button>
+        <button onClick={cancel} className="text-red-600 text-xs">✕</button>
+      </div>
+    );
+  }
+
+  const hasTarget = channel.target !== null && channel.target !== undefined;
+  const mismatch = hasTarget && channel.current !== channel.target;
+
+  return (
+    <span
+      onClick={startEdit}
+      className={`cursor-pointer hover:bg-blue-50 px-1 rounded ${hasTarget ? 'text-blue-600' : 'text-gray-300'} ${mismatch ? 'font-bold' : ''}`}
+    >
+      {formatValue(channel.target)}
+    </span>
+  );
+}
+
+function DeviceChannelsTable({ channels, onSetChannel }: { channels: Channel[]; onSetChannel: (key: string, value: any) => void }) {
+  const controllable = channels.filter(c => c.controllable);
+  const readOnly = channels.filter(c => !c.controllable);
+
+  return (
+    <div className="space-y-4">
+      {/* Controllable */}
+      <div>
+        <h4 className="text-xs font-medium text-gray-400 mb-2">CONTROLLABLE</h4>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200">
+              <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Channel</th>
+              <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Current</th>
+              <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            {controllable.map((ch) => {
+              const mismatch = ch.target !== null && ch.target !== undefined && ch.current !== ch.target;
+              return (
+                <tr key={ch.key} className="border-b border-gray-100">
+                  <td className="py-1.5 px-2 font-mono text-xs text-gray-700">{ch.key}</td>
+                  <td className={`py-1.5 px-2 font-mono text-xs ${mismatch ? 'text-orange-600' : 'text-gray-600'}`}>
+                    {formatValue(ch.current)}
+                  </td>
+                  <td className="py-1.5 px-2 font-mono text-xs">
+                    <EditableCell channel={ch} onSave={onSetChannel} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Read-only */}
+      <div>
+        <h4 className="text-xs font-medium text-gray-400 mb-2">READ-ONLY</h4>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-gray-200">
+              <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Channel</th>
+              <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {readOnly.map((ch) => (
+              <tr key={ch.key} className="border-b border-gray-100">
+                <td className="py-1.5 px-2 font-mono text-xs text-gray-700">{ch.key}</td>
+                <td className="py-1.5 px-2 font-mono text-xs text-gray-600">{formatValue(ch.current)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ServerStateTable({ state }: { state: Channel[] }) {
+  return (
+    <table className="w-full text-sm">
+      <thead>
+        <tr className="border-b border-gray-200">
+          <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Key</th>
+          <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {state.map((ch) => (
+          <tr key={ch.key} className="border-b border-gray-100">
+            <td className="py-1.5 px-2 font-mono text-xs text-gray-700">{ch.key}</td>
+            <td className="py-1.5 px-2 font-mono text-xs text-gray-600">{formatValue(ch.target ?? ch.current)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function SettingsPage() {
+  const [data, setData] = useState<ChannelData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchChannels = async () => {
-      try {
-        const res = await fetch('/api/channels');
-        if (res.ok) {
-          const data = await res.json();
-          setChannels(data.channels);
-          setError(null);
-        } else {
-          setError('Failed to fetch channels');
-        }
-      } catch (e) {
-        setError('Connection error');
-      } finally {
-        setLoading(false);
+  const fetchChannels = async () => {
+    try {
+      const res = await fetch('/api/channels');
+      if (res.ok) {
+        setData(await res.json());
+        setError(null);
+      } else {
+        setError('Failed to fetch channels');
       }
-    };
+    } catch (e) {
+      setError('Connection error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchChannels();
     const interval = setInterval(fetchChannels, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  if (loading) {
-    return <div className="text-gray-400 text-center py-8">Loading channels...</div>;
-  }
+  const handleSetChannel = async (key: string, value: any) => {
+    try {
+      const res = await fetch('/api/channels/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value }),
+      });
+      if (res.ok) {
+        fetchChannels(); // Refresh
+      }
+    } catch (e) {
+      console.error('Failed to set channel:', e);
+    }
+  };
 
-  if (error) {
-    return <div className="text-red-500 text-center py-8">{error}</div>;
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-200">
-            <th className="text-left py-2 px-2 font-medium text-gray-500">Channel</th>
-            <th className="text-left py-2 px-2 font-medium text-gray-500">Current</th>
-            <th className="text-left py-2 px-2 font-medium text-gray-500">Target</th>
-          </tr>
-        </thead>
-        <tbody>
-          {channels.map((ch) => {
-            const hasTarget = ch.target !== null && ch.target !== undefined;
-            const mismatch = hasTarget && ch.current !== ch.target;
-
-            return (
-              <tr key={ch.key} className="border-b border-gray-100">
-                <td className="py-2 px-2 font-mono text-xs text-gray-700">{ch.key}</td>
-                <td className={`py-2 px-2 font-mono text-xs ${mismatch ? 'text-orange-600' : 'text-gray-600'}`}>
-                  {formatValue(ch.current)}
-                </td>
-                <td className={`py-2 px-2 font-mono text-xs ${hasTarget ? 'text-blue-600' : 'text-gray-300'}`}>
-                  {formatValue(ch.target)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-export function SettingsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -92,14 +213,28 @@ export function SettingsPage() {
       </div>
 
       <div className="px-6 -mt-4">
-        {/* Channel Status */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
-          <h3 className="text-sm font-medium text-gray-500 mb-4">Channel Status</h3>
-          <ChannelTable />
-          <p className="text-xs text-gray-400 mt-4">
-            <span className="text-orange-600">Orange</span> = current differs from target
-          </p>
-        </div>
+        {loading ? (
+          <div className="bg-white rounded-2xl p-5 shadow-sm text-gray-400 text-center">Loading...</div>
+        ) : error ? (
+          <div className="bg-white rounded-2xl p-5 shadow-sm text-red-500 text-center">{error}</div>
+        ) : data && (
+          <>
+            {/* Device Channels */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
+              <h3 className="text-sm font-medium text-gray-500 mb-4">Device Channels</h3>
+              <DeviceChannelsTable channels={data.device_channels} onSetChannel={handleSetChannel} />
+              <p className="text-xs text-gray-400 mt-4">
+                Click target value to edit. <span className="text-orange-600">Orange</span> = pending change.
+              </p>
+            </div>
+
+            {/* Server State */}
+            <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
+              <h3 className="text-sm font-medium text-gray-500 mb-4">Server State</h3>
+              <ServerStateTable state={data.server_state} />
+            </div>
+          </>
+        )}
       </div>
 
       {/* Bottom spacer for nav */}

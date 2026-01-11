@@ -781,28 +781,70 @@ async def get_channels():
     """Get all channels with current values and targets for debugging."""
     targets = calculate_targets()
 
-    # Build channel list with current value and target (if any)
-    channels = []
+    # Controllable device channels (can be set via targets)
+    CONTROLLABLE = {
+        "heater_power", "heater_target_temp", "heater_heat_mode",
+        "heater_oscillation", "heater_display",
+        "plug_on", "battery_charge_power",
+    }
 
-    # All known channel keys
-    channel_keys = set(latest_channels.keys()) | set(targets.keys())
+    # Server-side state (not device channels)
+    SERVER_STATE = {
+        "tou_period", "automation_mode", "driver_control_enabled",
+        "offpeak_state", "heater_sleep_mode", "low_battery_override",
+    }
 
-    for key in sorted(channel_keys):
+    device_channels = []
+    server_state = []
+
+    # All known keys
+    all_keys = set(latest_channels.keys()) | set(targets.keys())
+
+    for key in sorted(all_keys):
         current = get_channel_value(latest_channels, key)
         target = targets.get(key)
 
-        # Get last updated time if available
         ch_data = latest_channels.get(key, {})
         last_updated = ch_data.get("last_updated") if isinstance(ch_data, dict) else None
 
-        channels.append({
+        entry = {
             "key": key,
             "current": current,
             "target": target,
             "last_updated": last_updated,
-        })
+        }
 
-    return {"channels": channels}
+        if key in SERVER_STATE:
+            server_state.append(entry)
+        else:
+            entry["controllable"] = key in CONTROLLABLE
+            device_channels.append(entry)
+
+    return {
+        "device_channels": device_channels,
+        "server_state": server_state,
+    }
+
+
+@app.post("/api/channels/set")
+async def set_channel(data: dict):
+    """Set a controllable channel's target value."""
+    key = data.get("key")
+    value = data.get("value")
+
+    CONTROLLABLE = {
+        "heater_power", "heater_target_temp", "heater_heat_mode",
+        "heater_oscillation", "heater_display",
+        "plug_on", "battery_charge_power",
+    }
+
+    if key not in CONTROLLABLE:
+        return {"error": f"Channel {key} is not controllable"}
+
+    user_targets[key] = value
+    save_settings(targets=user_targets)
+
+    return {"ok": True, "key": key, "value": value}
 
 
 @app.post("/api/sleep")
