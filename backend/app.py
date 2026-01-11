@@ -781,17 +781,24 @@ async def get_channels():
     """Get all channels with current values and targets for debugging."""
     targets = calculate_targets()
 
-    # Controllable device channels (can be set via targets)
-    CONTROLLABLE = {
-        "heater_power", "heater_target_temp", "heater_heat_mode",
-        "heater_oscillation", "heater_display",
-        "plug_on", "battery_charge_power",
-    }
-
-    # Server-side state (not device channels)
-    SERVER_STATE = {
-        "tou_period", "automation_mode", "driver_control_enabled",
-        "offpeak_state", "heater_sleep_mode", "low_battery_override",
+    # Channel metadata: type hints for UI rendering
+    CHANNEL_META = {
+        # Device channels
+        "heater_power": {"type": "bool", "controllable": True},
+        "heater_target_temp": {"type": "number", "controllable": True},
+        "heater_heat_mode": {"type": "enum", "options": ["Low", "Medium", "High"], "controllable": True},
+        "heater_oscillation": {"type": "bool", "controllable": True},
+        "heater_display": {"type": "bool", "controllable": True},
+        "plug_on": {"type": "bool", "controllable": True},
+        "battery_charge_power": {"type": "number", "controllable": True},
+        # Server state (controllable)
+        "automation_mode": {"type": "enum", "options": ["manual", "tou"], "controllable": True, "server": True},
+        "driver_control_enabled": {"type": "bool", "controllable": True, "server": True},
+        # Server state (read-only)
+        "tou_period": {"type": "string", "server": True},
+        "offpeak_state": {"type": "string", "server": True},
+        "heater_sleep_mode": {"type": "bool", "server": True},
+        "low_battery_override": {"type": "bool", "server": True},
     }
 
     device_channels = []
@@ -807,17 +814,20 @@ async def get_channels():
         ch_data = latest_channels.get(key, {})
         last_updated = ch_data.get("last_updated") if isinstance(ch_data, dict) else None
 
+        meta = CHANNEL_META.get(key, {})
         entry = {
             "key": key,
             "current": current,
             "target": target,
             "last_updated": last_updated,
+            "controllable": meta.get("controllable", False),
+            "type": meta.get("type", "string"),
+            "options": meta.get("options"),
         }
 
-        if key in SERVER_STATE:
+        if meta.get("server"):
             server_state.append(entry)
         else:
-            entry["controllable"] = key in CONTROLLABLE
             device_channels.append(entry)
 
     return {
@@ -829,20 +839,32 @@ async def get_channels():
 @app.post("/api/channels/set")
 async def set_channel(data: dict):
     """Set a controllable channel's target value."""
+    global driver_control_enabled, automation_mode
+
     key = data.get("key")
     value = data.get("value")
 
-    CONTROLLABLE = {
+    # Device channels
+    DEVICE_CONTROLLABLE = {
         "heater_power", "heater_target_temp", "heater_heat_mode",
         "heater_oscillation", "heater_display",
         "plug_on", "battery_charge_power",
     }
 
-    if key not in CONTROLLABLE:
-        return {"error": f"Channel {key} is not controllable"}
+    # Server state channels
+    SERVER_CONTROLLABLE = {"automation_mode", "driver_control_enabled"}
 
-    user_targets[key] = value
-    save_settings(targets=user_targets)
+    if key in DEVICE_CONTROLLABLE:
+        user_targets[key] = value
+        save_settings(targets=user_targets)
+    elif key == "automation_mode":
+        automation_mode = value
+        save_settings(mode=value)
+    elif key == "driver_control_enabled":
+        driver_control_enabled = value
+        save_settings(driver_enabled=value)
+    else:
+        return {"error": f"Channel {key} is not controllable"}
 
     return {"ok": True, "key": key, "value": value}
 

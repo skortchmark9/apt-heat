@@ -6,6 +6,8 @@ interface Channel {
   target: any;
   last_updated: string | null;
   controllable?: boolean;
+  type?: 'bool' | 'number' | 'enum' | 'string';
+  options?: string[];
 }
 
 interface ChannelData {
@@ -24,24 +26,17 @@ function EditableCell({ channel, onSave }: { channel: Channel; onSave: (key: str
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
 
+  const currentValue = channel.target ?? channel.current;
+  const hasTarget = channel.target !== null && channel.target !== undefined;
+  const mismatch = hasTarget && channel.current !== channel.target;
+
   const startEdit = () => {
-    setValue(formatValue(channel.target ?? channel.current));
+    setValue(formatValue(currentValue));
     setEditing(true);
   };
 
-  const save = () => {
-    let parsed: any = value;
-    // Try to parse as number
-    if (/^-?\d+$/.test(value)) {
-      parsed = parseInt(value, 10);
-    } else if (/^-?\d+\.\d+$/.test(value)) {
-      parsed = parseFloat(value);
-    } else if (value === 'true') {
-      parsed = true;
-    } else if (value === 'false') {
-      parsed = false;
-    }
-    onSave(channel.key, parsed);
+  const saveValue = (val: any) => {
+    onSave(channel.key, val);
     setEditing(false);
   };
 
@@ -49,28 +44,58 @@ function EditableCell({ channel, onSave }: { channel: Channel; onSave: (key: str
     setEditing(false);
   };
 
+  // Boolean: simple toggle or dropdown
+  if (channel.type === 'bool') {
+    return (
+      <select
+        value={currentValue ? 'true' : 'false'}
+        onChange={(e) => saveValue(e.target.value === 'true')}
+        className={`text-xs font-mono border rounded px-1 py-0.5 ${mismatch ? 'text-orange-600 font-bold' : 'text-blue-600'}`}
+      >
+        <option value="true">true</option>
+        <option value="false">false</option>
+      </select>
+    );
+  }
+
+  // Enum: dropdown with options
+  if (channel.type === 'enum' && channel.options) {
+    return (
+      <select
+        value={currentValue ?? ''}
+        onChange={(e) => saveValue(e.target.value)}
+        className={`text-xs font-mono border rounded px-1 py-0.5 ${mismatch ? 'text-orange-600 font-bold' : 'text-blue-600'}`}
+      >
+        {channel.options.map((opt) => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+    );
+  }
+
+  // Number/string: text input
   if (editing) {
     return (
       <div className="flex items-center gap-1">
         <input
-          type="text"
+          type={channel.type === 'number' ? 'number' : 'text'}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="w-20 px-1 py-0.5 text-xs font-mono border rounded"
+          className="w-16 px-1 py-0.5 text-xs font-mono border rounded"
           onKeyDown={(e) => {
-            if (e.key === 'Enter') save();
+            if (e.key === 'Enter') {
+              const parsed = channel.type === 'number' ? Number(value) : value;
+              saveValue(parsed);
+            }
             if (e.key === 'Escape') cancel();
           }}
           autoFocus
         />
-        <button onClick={save} className="text-green-600 text-xs">✓</button>
+        <button onClick={() => saveValue(channel.type === 'number' ? Number(value) : value)} className="text-green-600 text-xs">✓</button>
         <button onClick={cancel} className="text-red-600 text-xs">✕</button>
       </div>
     );
   }
-
-  const hasTarget = channel.target !== null && channel.target !== undefined;
-  const mismatch = hasTarget && channel.current !== channel.target;
 
   return (
     <span
@@ -142,24 +167,58 @@ function DeviceChannelsTable({ channels, onSetChannel }: { channels: Channel[]; 
   );
 }
 
-function ServerStateTable({ state }: { state: Channel[] }) {
+function ServerStateTable({ state, onSetChannel }: { state: Channel[]; onSetChannel: (key: string, value: any) => void }) {
+  const controllable = state.filter(s => s.controllable);
+  const readOnly = state.filter(s => !s.controllable);
+
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-gray-200">
-          <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Key</th>
-          <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Value</th>
-        </tr>
-      </thead>
-      <tbody>
-        {state.map((ch) => (
-          <tr key={ch.key} className="border-b border-gray-100">
-            <td className="py-1.5 px-2 font-mono text-xs text-gray-700">{ch.key}</td>
-            <td className="py-1.5 px-2 font-mono text-xs text-gray-600">{formatValue(ch.target ?? ch.current)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="space-y-4">
+      {controllable.length > 0 && (
+        <div>
+          <h4 className="text-xs font-medium text-gray-400 mb-2">CONTROLLABLE</h4>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Key</th>
+                <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {controllable.map((ch) => (
+                <tr key={ch.key} className="border-b border-gray-100">
+                  <td className="py-1.5 px-2 font-mono text-xs text-gray-700">{ch.key}</td>
+                  <td className="py-1.5 px-2 font-mono text-xs">
+                    <EditableCell channel={ch} onSave={onSetChannel} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {readOnly.length > 0 && (
+        <div>
+          <h4 className="text-xs font-medium text-gray-400 mb-2">READ-ONLY</h4>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Key</th>
+                <th className="text-left py-1 px-2 font-medium text-gray-500 text-xs">Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {readOnly.map((ch) => (
+                <tr key={ch.key} className="border-b border-gray-100">
+                  <td className="py-1.5 px-2 font-mono text-xs text-gray-700">{ch.key}</td>
+                  <td className="py-1.5 px-2 font-mono text-xs text-gray-600">{formatValue(ch.target ?? ch.current)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -231,7 +290,7 @@ export function SettingsPage() {
             {/* Server State */}
             <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
               <h3 className="text-sm font-medium text-gray-500 mb-4">Server State</h3>
-              <ServerStateTable state={data.server_state} />
+              <ServerStateTable state={data.server_state} onSetChannel={handleSetChannel} />
             </div>
           </>
         )}
