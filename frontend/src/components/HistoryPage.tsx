@@ -91,27 +91,35 @@ export function HistoryPage() {
         <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
           <h3 className="text-sm font-medium text-gray-500 mb-4">Daily Breakdown</h3>
           <div className="space-y-2">
-            {history?.days.map((day, i) => {
-              const date = new Date(day.date + 'T12:00:00');
-              const dayLabel = i === 0 ? 'Today' : i === 1 ? 'Yesterday' : date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            {(() => {
+              const daysWithData = history?.days.filter(day => day.total_kwh > 0) || [];
+              const today = new Date().toISOString().split('T')[0];
+              const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
-              return (
-                <div key={day.date} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                  <div>
-                    <div className="text-sm font-medium text-gray-700">{dayLabel}</div>
-                    <div className="text-xs text-gray-400">{day.total_kwh.toFixed(1)} kWh total</div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-sm font-bold ${day.savings > 0 ? 'text-emerald-500' : 'text-gray-400'}`}>
-                      {day.savings > 0 ? `+$${day.savings.toFixed(2)}` : '$0.00'}
+              return daysWithData.map((day) => {
+                const date = new Date(day.date + 'T12:00:00');
+                const dayLabel = day.date === today ? 'Today'
+                  : day.date === yesterday ? 'Yesterday'
+                  : date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+                return (
+                  <div key={day.date} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                    <div>
+                      <div className="text-sm font-medium text-gray-700">{dayLabel}</div>
+                      <div className="text-xs text-gray-400">{day.total_kwh.toFixed(1)} kWh total</div>
                     </div>
-                    <div className="text-xs text-gray-400">
-                      {day.peak_kwh.toFixed(1)} peak / {day.offpeak_kwh.toFixed(1)} off-peak
+                    <div className="text-right">
+                      <div className={`text-sm font-bold ${day.savings > 0 ? 'text-emerald-500' : 'text-gray-400'}`}>
+                        {day.savings > 0 ? `+$${day.savings.toFixed(2)}` : '$0.00'}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {day.peak_kwh.toFixed(1)} peak / {day.offpeak_kwh.toFixed(1)} off-peak
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         </div>
       </div>
