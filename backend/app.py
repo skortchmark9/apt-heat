@@ -379,46 +379,40 @@ user_targets = {
 }
 
 
-def calculate_targets():
-    """
-    Calculate current targets based on automation mode.
+def get_user_targets() -> dict:
+    """Get current user target settings."""
+    return {
+        "plug_on": user_targets.get("plug_on", True),
+        "heater_power": user_targets.get("heater_power", True),
+        "heater_target_temp": user_targets.get("heater_target_temp", 70),
+        "heater_heat_mode": user_targets.get("heater_heat_mode", "High"),
+        "battery_charge_power": user_targets.get("battery_charge_power", 0),
+    }
 
-    Modes:
-      - "manual": Don't send device targets - let devices keep current state
-      - "tou": Bang-bang controller during off-peak:
-          HEATING state: charge=0, heat_mode=High, target=desired
-          CHARGING state: charge=1500W, target=desired-3 (heater off)
-          Transitions based on current_temp vs desired temp
 
-    Returns a flat dict of targets for the driver to apply.
+def get_automation_targets() -> dict:
     """
-    global driver_control_enabled, automation_mode, offpeak_state
+    Get automation overrides for TOU mode.
+
+    Bang-bang controller during off-peak:
+      HEATING state: charge=0, heat at target temp
+      CHARGING state: charge=1500W, target-3 (heater off)
+
+    Returns dict of targets to overlay on user targets.
+    """
+    global offpeak_state
 
     now = datetime.now(LOCAL_TZ)
     period = get_tou_period(now)
+    auto_targets = {}
 
-    # Base targets - always include mode info
-    targets = {
-        "tou_period": period,
-        "driver_control_enabled": driver_control_enabled,
-        "automation_mode": automation_mode,
-        # Plug is always controlled (user toggle)
-        "plug_on": user_targets.get("plug_on", True),
-    }
-
-    # In manual mode, don't send device targets - just let things be
-    if automation_mode == "manual":
-        return targets
-
-    # TOU automation mode - always include heater_power from user settings
-    targets["heater_power"] = user_targets.get("heater_power", True)
     desired_temp = user_targets.get("heater_target_temp", 70)
 
-    # Sleep schedule override for heater target (always active if set)
+    # Sleep schedule override
     sleep_target = get_sleep_target_temp()
     if sleep_target is not None:
         desired_temp = sleep_target
-        targets["heater_sleep_mode"] = True
+        auto_targets["heater_sleep_mode"] = True
 
     if period == "off_peak":
         # Bang-bang controller: alternate between heating and charging
@@ -433,25 +427,55 @@ def calculate_targets():
                 offpeak_state = "heating"
                 print(f"[AUTOMATION] Transition: CHARGING -> HEATING (temp={current_temp}°F <= {desired_temp - 2}°F)")
 
-        # Apply state
         if offpeak_state == "heating":
-            # HEATING: no charging, heat at full blast
-            targets["battery_charge_power"] = 0
-            targets["heater_target_temp"] = desired_temp
-            targets["heater_heat_mode"] = "High"
+            auto_targets["battery_charge_power"] = 0
+            auto_targets["heater_target_temp"] = desired_temp
+            auto_targets["heater_heat_mode"] = "High"
         else:
-            # CHARGING: max charging, heater target low to keep it off
-            targets["battery_charge_power"] = 1500
-            targets["heater_target_temp"] = desired_temp - 3
-            targets["heater_heat_mode"] = "High"
+            auto_targets["battery_charge_power"] = 1500
+            auto_targets["heater_target_temp"] = desired_temp - 3
+            auto_targets["heater_heat_mode"] = "High"
 
-        targets["offpeak_state"] = offpeak_state
+        auto_targets["offpeak_state"] = offpeak_state
     else:
         # Peak: no charging, normal heating
-        targets["battery_charge_power"] = 0
-        targets["heater_target_temp"] = desired_temp
-        targets["heater_heat_mode"] = "High"
+        auto_targets["battery_charge_power"] = 0
+        auto_targets["heater_target_temp"] = desired_temp
+        auto_targets["heater_heat_mode"] = "High"
         offpeak_state = "heating"  # Reset for next off-peak
+
+    # SAFETY: Low battery + unplugged = turn off heater
+    battery_soc = get_channel_value(latest_channels, "battery_soc")
+    plug_on = user_targets.get("plug_on", True)
+    if battery_soc is not None and battery_soc <= 5 and not plug_on:
+        print(f"[SAFETY] Battery low ({battery_soc}%) and unplugged, disabling heater")
+        auto_targets["heater_power"] = False
+
+    return auto_targets
+
+
+def calculate_targets():
+    """
+    Calculate current targets based on automation mode.
+
+    Always starts with user targets, then overlays automation if enabled.
+    """
+    now = datetime.now(LOCAL_TZ)
+    period = get_tou_period(now)
+
+    # Base info (always included)
+    targets = {
+        "tou_period": period,
+        "driver_control_enabled": driver_control_enabled,
+        "automation_mode": automation_mode,
+    }
+
+    # Always apply user targets
+    targets.update(get_user_targets())
+
+    # Overlay automation targets if TOU mode enabled
+    if automation_mode == "tou":
+        targets.update(get_automation_targets())
 
     return targets
 
