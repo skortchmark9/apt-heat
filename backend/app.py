@@ -411,11 +411,14 @@ def calculate_targets():
         return targets
 
     # SAFETY: Low battery protection
-    # If SoC drops to 5% or below, turn off heater to avoid abrupt 3% cutoff
+    # If SoC drops to 5% or below AND not plugged in, turn off heater to avoid abrupt 3% cutoff
     battery_soc = get_channel_value(latest_channels, "battery_soc")
-    low_battery = battery_soc is not None and battery_soc <= 5
+    watts_in = get_channel_value(latest_channels, "battery_watts_in") or 0
+    plug_on = user_targets.get("plug_on", True)
+    # Only trigger if battery is low AND not receiving power from wall
+    low_battery = battery_soc is not None and battery_soc <= 5 and watts_in < 50 and not plug_on
     if low_battery:
-        print(f"[SAFETY] Battery low ({battery_soc}%), disabling heater")
+        print(f"[SAFETY] Battery low ({battery_soc}%) and unplugged, disabling heater")
 
     # TOU automation mode
     desired_temp = user_targets.get("heater_target_temp", 70)
