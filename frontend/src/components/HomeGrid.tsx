@@ -4,6 +4,10 @@ interface HomeGridProps {
   status: HeaterStatus | null;
   outdoorTemp: number | null;
   powerWatts: number;
+  effectiveTargetTemp: number;
+  effectivePower: boolean;
+  effectiveOscillation: boolean;
+  hasPending: boolean;
   onTempUp: () => void;
   onTempDown: () => void;
   onPowerToggle: () => void;
@@ -16,6 +20,10 @@ export function HomeGrid({
   status,
   outdoorTemp,
   powerWatts,
+  effectiveTargetTemp,
+  effectivePower,
+  effectiveOscillation,
+  hasPending,
   onTempUp,
   onTempDown,
   onPowerToggle,
@@ -24,9 +32,9 @@ export function HomeGrid({
   sleepActive,
 }: HomeGridProps) {
   const currentTemp = status?.current_temp_f ?? null;
-  const targetTemp = status?.target_temp_f ?? 72;
-  const isPowerOn = status?.power ?? false;
-  const isOscillating = status?.oscillation ?? false;
+  const targetTemp = effectiveTargetTemp;
+  const isPowerOn = effectivePower;
+  const isOscillating = effectiveOscillation;
 
   // Determine temperature status
   let tempStatus = 'Loading...';
@@ -76,8 +84,11 @@ export function HomeGrid({
               −
             </button>
             <div className="text-center">
-              <div className="text-[0.625rem] uppercase tracking-wider text-gray-500">
+              <div className="text-[0.625rem] uppercase tracking-wider text-gray-500 flex items-center justify-center gap-1">
                 Target
+                {hasPending && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" title="Syncing..." />
+                )}
               </div>
               <div id="target-temp" className="text-[1.75rem] font-bold">
                 {targetTemp}°

@@ -4,6 +4,7 @@ export interface HeaterStatus {
   power: boolean;
   current_temp_f: number | null;
   target_temp_f: number | null;
+  target_power: boolean | null;
   heat_mode: string | null;
   active_heat_level: number | null;
   power_watts: number | null;

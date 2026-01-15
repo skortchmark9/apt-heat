@@ -1,7 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { HeaterStatus, SleepSchedule, SavingsData } from '../types';
 
 const POLL_INTERVAL = 30000; // 30 seconds
+
+// Pending targets for optimistic UI updates
+interface PendingTargets {
+  temp?: number;
+  power?: boolean;
+  oscillation?: boolean;
+}
 
 export function useHeaterStatus() {
   const [status, setStatus] = useState<HeaterStatus | null>(null);
@@ -10,6 +17,24 @@ export function useHeaterStatus() {
   const [monthlySavings, setMonthlySavings] = useState<SavingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingTargets>({});
+  const pendingRef = useRef<PendingTargets>({});
+
+  // Clear pending when server confirms the value matches
+  const clearPendingIfMatched = (serverStatus: HeaterStatus) => {
+    const newPending = { ...pendingRef.current };
+    if (newPending.temp !== undefined && serverStatus.target_temp_f === newPending.temp) {
+      delete newPending.temp;
+    }
+    if (newPending.power !== undefined && serverStatus.target_power === newPending.power) {
+      delete newPending.power;
+    }
+    if (newPending.oscillation !== undefined && serverStatus.oscillation === newPending.oscillation) {
+      delete newPending.oscillation;
+    }
+    pendingRef.current = newPending;
+    setPending(newPending);
+  };
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -21,7 +46,9 @@ export function useHeaterStatus() {
       ]);
 
       if (statusRes.ok) {
-        setStatus(await statusRes.json());
+        const newStatus = await statusRes.json();
+        setStatus(newStatus);
+        clearPendingIfMatched(newStatus);
       }
       if (sleepRes.ok) {
         setSleepSchedule(await sleepRes.json());
@@ -46,36 +73,37 @@ export function useHeaterStatus() {
     return () => clearInterval(interval);
   }, [fetchStatus]);
 
-  const setTargetTemp = async (temp: number) => {
+  const setTargetTemp = (temp: number) => {
     const clampedTemp = Math.max(41, Math.min(95, temp));
-    try {
-      await fetch('/api/target', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ temp: clampedTemp }),
-      });
-      await fetchStatus();
-    } catch (e) {
-      console.error('Failed to set target temp:', e);
-    }
+    // Optimistic update
+    pendingRef.current = { ...pendingRef.current, temp: clampedTemp };
+    setPending({ ...pendingRef.current });
+    // Fire and forget
+    fetch('/api/target', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ temp: clampedTemp }),
+    }).catch(e => console.error('Failed to set target temp:', e));
   };
 
-  const togglePower = async () => {
-    try {
-      await fetch('/api/power/toggle', { method: 'POST' });
-      await fetchStatus();
-    } catch (e) {
-      console.error('Failed to toggle power:', e);
-    }
+  const togglePower = () => {
+    const newPower = !(pending.power ?? status?.power ?? false);
+    // Optimistic update
+    pendingRef.current = { ...pendingRef.current, power: newPower };
+    setPending({ ...pendingRef.current });
+    // Fire and forget
+    fetch('/api/power/toggle', { method: 'POST' })
+      .catch(e => console.error('Failed to toggle power:', e));
   };
 
-  const toggleOscillation = async () => {
-    try {
-      await fetch('/api/oscillation/toggle', { method: 'POST' });
-      await fetchStatus();
-    } catch (e) {
-      console.error('Failed to toggle oscillation:', e);
-    }
+  const toggleOscillation = () => {
+    const newOsc = !(pending.oscillation ?? status?.oscillation ?? false);
+    // Optimistic update
+    pendingRef.current = { ...pendingRef.current, oscillation: newOsc };
+    setPending({ ...pendingRef.current });
+    // Fire and forget
+    fetch('/api/oscillation/toggle', { method: 'POST' })
+      .catch(e => console.error('Failed to toggle oscillation:', e));
   };
 
   const startSleepMode = async (wakeTime: string, curve: { progress: number; temp: number }[]) => {
@@ -105,6 +133,11 @@ export function useHeaterStatus() {
     }
   };
 
+  // Effective values (pending overrides server values)
+  const effectiveTargetTemp = pending.temp ?? status?.target_temp_f ?? 72;
+  const effectivePower = pending.power ?? status?.power ?? false;
+  const effectiveOscillation = pending.oscillation ?? status?.oscillation ?? false;
+
   return {
     status,
     sleepSchedule,
@@ -112,6 +145,10 @@ export function useHeaterStatus() {
     monthlySavings,
     loading,
     error,
+    pending,
+    effectiveTargetTemp,
+    effectivePower,
+    effectiveOscillation,
     refresh: fetchStatus,
     setTargetTemp,
     togglePower,

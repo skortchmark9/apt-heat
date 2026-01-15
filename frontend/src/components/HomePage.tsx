@@ -19,6 +19,10 @@ export function HomePage() {
     sleepSchedule,
     savings,
     monthlySavings,
+    pending,
+    effectiveTargetTemp,
+    effectivePower,
+    effectiveOscillation,
     setTargetTemp,
     togglePower,
     toggleOscillation,
@@ -29,15 +33,13 @@ export function HomePage() {
   const { readings, latestTimestamp, isStale } = useReadings(chartHours);
   const { status: batteryStatus } = useBatteryStatus();
 
-  // Handlers
+  // Handlers - use effective values for the next increment
   const handleTempUp = () => {
-    const currentTarget = status?.target_temp_f ?? 72;
-    setTargetTemp(Math.min(currentTarget + 1, 95));
+    setTargetTemp(Math.min(effectiveTargetTemp + 1, 95));
   };
 
   const handleTempDown = () => {
-    const currentTarget = status?.target_temp_f ?? 72;
-    setTargetTemp(Math.max(currentTarget - 1, 41));
+    setTargetTemp(Math.max(effectiveTargetTemp - 1, 41));
   };
 
   const handleSleepClick = () => setShowSleepModal(true);
@@ -72,6 +74,10 @@ export function HomePage() {
         status={status}
         outdoorTemp={status?.outdoor_temp_f ?? null}
         powerWatts={batteryStatus?.watts_out ?? 0}
+        effectiveTargetTemp={effectiveTargetTemp}
+        effectivePower={effectivePower}
+        effectiveOscillation={effectiveOscillation}
+        hasPending={Object.keys(pending).length > 0}
         onTempUp={handleTempUp}
         onTempDown={handleTempDown}
         onPowerToggle={togglePower}
@@ -97,7 +103,7 @@ export function HomePage() {
         onClose={() => setShowSleepModal(false)}
         onStart={handleSleepStart}
         onCancel={handleSleepCancel}
-        currentTarget={status?.target_temp_f ?? 72}
+        currentTarget={effectiveTargetTemp}
         sleepActive={sleepSchedule?.active ?? false}
         sleepProgress={sleepSchedule?.progress}
         serverCurve={sleepSchedule?.curve}
