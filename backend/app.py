@@ -19,7 +19,7 @@ from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
 from dotenv import load_dotenv
 
-from models import Base, HeaterReading, SleepSchedule, AppSettings
+from models import Base, HeaterReading, SleepSchedule, AppSettings, DailyStats
 from rates import calculate_savings_from_readings, get_tou_period, get_rate_for_period
 
 load_dotenv()
@@ -986,9 +986,23 @@ async def get_savings(
 
 
 @app.get("/api/stats/today")
-async def get_stats_today():
-    """Get today's running stats (from in-memory cache)."""
+async def get_stats_today(db: Session = Depends(get_db)):
+    """Get today's stats, falling back to DB if cache is empty."""
     stats = get_today_stats()
+
+    # If cache is empty/stale, query DB
+    if stats.get("total_kwh", 0) == 0 and stats.get("peak_shaved_kwh", 0) == 0:
+        today = datetime.now(LOCAL_TZ).date()
+        day_start = datetime.combine(today, datetime.min.time())
+        readings = db.query(HeaterReading).filter(
+            HeaterReading.timestamp >= day_start
+        ).order_by(HeaterReading.timestamp).all()
+
+        if readings:
+            poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+            stats = calculate_savings_from_readings(readings, poll_interval)
+            stats["date"] = today.isoformat()
+
     # Add current period info
     now = datetime.now(LOCAL_TZ)
     stats["current_period"] = get_tou_period(now)
@@ -1036,12 +1050,6 @@ async def get_stats_history(
     # Compute stats for each day from today back
     for days_ago in range(days):
         day = today - timedelta(days=days_ago)
-
-        # For today, use the cached stats
-        if days_ago == 0:
-            daily_stats.append(get_today_stats())
-            continue
-
         day_readings = readings_by_day.get(day, [])
 
         if not day_readings:
