@@ -12,7 +12,6 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
-COPY rates.py ./backend/
 COPY --from=frontend /app/frontend/dist ./frontend/dist
 EXPOSE 8000
 WORKDIR /app/backend
