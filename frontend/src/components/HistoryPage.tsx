@@ -20,17 +20,23 @@ interface HistoryData {
   month_kwh: number;
 }
 
+// Module-level cache - persists across tab switches
+let historyCache: HistoryData | null = null;
+
 export function HistoryPage({ isActive = true }: { isActive?: boolean }) {
-  const [history, setHistory] = useState<HistoryData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [history, setHistory] = useState<HistoryData | null>(historyCache);
+  const [loading, setLoading] = useState(!historyCache);
 
   useEffect(() => {
     if (!isActive) return;
+
     const fetchStats = async () => {
       try {
         const res = await fetch('/api/stats/history?days=30');
         if (res.ok) {
-          setHistory(await res.json());
+          const data = await res.json();
+          historyCache = data;  // Update cache
+          setHistory(data);
         }
       } catch (e) {
         console.error('Failed to fetch stats:', e);
@@ -44,7 +50,7 @@ export function HistoryPage({ isActive = true }: { isActive?: boolean }) {
     return () => clearInterval(interval);
   }, [isActive]);
 
-  if (loading) {
+  if (loading && !history) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-gray-500">Loading stats...</div>
