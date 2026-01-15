@@ -429,6 +429,7 @@ def get_user_targets() -> dict:
         "heater_target_temp": user_targets.get("heater_target_temp", 70),
         "heater_heat_mode": user_targets.get("heater_heat_mode", "High"),
         "heater_oscillation": user_targets.get("heater_oscillation", False),
+        "heater_display": user_targets.get("heater_display", True),
         "battery_charge_power": user_targets.get("battery_charge_power", 0),
     }
 
