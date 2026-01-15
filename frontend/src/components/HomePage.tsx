@@ -78,7 +78,7 @@ export function HomePage() {
         effectiveTargetTemp={effectiveTargetTemp}
         effectivePower={effectivePower}
         effectiveOscillation={effectiveOscillation}
-        hasPending={Object.keys(pending).length > 0}
+        pendingTemp={pending.temp !== undefined}
         onTempUp={handleTempUp}
         onTempDown={handleTempDown}
         onPowerToggle={togglePower}

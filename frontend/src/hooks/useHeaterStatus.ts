@@ -39,11 +39,10 @@ export function useHeaterStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const [statusRes, sleepRes, savingsRes, monthlyRes, historyRes] = await Promise.all([
+      const [statusRes, sleepRes, todayRes, historyRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/sleep'),
-        fetch('/api/savings?hours=24'),
-        fetch('/api/savings?hours=720'),
+        fetch('/api/stats/today'),  // Uses in-memory cache, no DB hit
         fetch('/api/stats/history?days=30'),
       ]);
 
@@ -55,15 +54,14 @@ export function useHeaterStatus() {
       if (sleepRes.ok) {
         setSleepSchedule(await sleepRes.json());
       }
-      if (savingsRes.ok) {
-        setSavings(await savingsRes.json());
-      }
-      if (monthlyRes.ok) {
-        setMonthlySavings(await monthlyRes.json());
+      if (todayRes.ok) {
+        setSavings(await todayRes.json());
       }
       if (historyRes.ok) {
         const history = await historyRes.json();
         setStreak(history.streak ?? 0);
+        // Use month_savings from history endpoint (already calculated)
+        setMonthlySavings({ savings: history.month_savings ?? 0 } as SavingsData);
       }
       setError(null);
     } catch (e) {

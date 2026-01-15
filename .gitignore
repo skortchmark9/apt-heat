@@ -15,6 +15,9 @@ env/
 node_modules/
 npm-debug.log*
 
+# Build output
+frontend/dist/
+
 # Local tools
 tools/
 

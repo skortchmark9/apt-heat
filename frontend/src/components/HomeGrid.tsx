@@ -7,7 +7,7 @@ interface HomeGridProps {
   effectiveTargetTemp: number;
   effectivePower: boolean;
   effectiveOscillation: boolean;
-  hasPending: boolean;
+  pendingTemp: boolean;
   onTempUp: () => void;
   onTempDown: () => void;
   onPowerToggle: () => void;
@@ -23,7 +23,7 @@ export function HomeGrid({
   effectiveTargetTemp,
   effectivePower,
   effectiveOscillation,
-  hasPending,
+  pendingTemp,
   onTempUp,
   onTempDown,
   onPowerToggle,
@@ -86,7 +86,7 @@ export function HomeGrid({
             <div className="text-center">
               <div className="text-[0.625rem] uppercase tracking-wider text-gray-500 flex items-center justify-center gap-1">
                 Target
-                {hasPending && (
+                {pendingTemp && (
                   <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" title="Syncing..." />
                 )}
               </div>

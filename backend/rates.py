@@ -77,6 +77,13 @@ def get_rate_for_period(dt: datetime) -> Tuple[str, float]:
 
 
 # =============================================================================
+# BATTERY CONFIG
+# =============================================================================
+
+BATTERY_CAPACITY_KWH = 3.6  # EcoFlow Delta Pro (3600 Wh)
+
+
+# =============================================================================
 # SAVINGS CALCULATIONS
 # =============================================================================
 
@@ -108,72 +115,68 @@ def calculate_savings(kwh_during_peak: float, dt: datetime = None) -> float:
     return kwh_during_peak * (peak_rate - offpeak_rate)
 
 
-def calculate_savings_from_readings(readings: list, poll_interval_sec: int = 5) -> dict:
+def calculate_savings_from_readings(readings: list, poll_interval_sec: int = 60) -> dict:
     """
     Calculate savings from a list of heater readings.
 
+    Savings are based on actual battery discharge during peak hours (SOC drops),
+    not total heater consumption.
+
     Args:
-        readings: List of HeaterReading objects with timestamp, power_watts
+        readings: List of HeaterReading objects with timestamp, power_watts, battery_soc
         poll_interval_sec: Seconds between readings (for energy calculation)
 
     Returns:
-        Dict with savings breakdown:
-        {
-            'total_kwh': float,
-            'peak_kwh': float,
-            'offpeak_kwh': float,
-            'savings': float,
-            'would_have_cost': float,
-            'actual_cost': float
-        }
+        Dict with savings breakdown
     """
+    # Track heater consumption (informational)
     peak_wh = 0.0
     offpeak_wh = 0.0
     total_wh = 0.0
 
-    peak_cost = 0.0
-    offpeak_cost = 0.0
+    # Track actual battery discharge during peak (for savings)
+    peak_shaved_kwh = 0.0
+    prev_soc = None
 
     for reading in readings:
-        if not reading.power_watts or reading.power_watts <= 0:
-            continue
+        # Track heater consumption
+        if reading.power_watts and reading.power_watts > 0:
+            wh = reading.power_watts * (poll_interval_sec / 3600)
+            total_wh += wh
 
-        # Energy for this interval (watt-hours)
-        wh = reading.power_watts * (poll_interval_sec / 3600)
-        total_wh += wh
+            period, _ = get_rate_for_period(reading.timestamp)
+            if period == "off_peak":
+                offpeak_wh += wh
+            else:
+                peak_wh += wh
 
-        # Get period and rate for this reading's timestamp
-        period, rate = get_rate_for_period(reading.timestamp)
+        # Track battery SOC drops during peak hours
+        current_soc = getattr(reading, 'battery_soc', None)
+        if current_soc is not None and prev_soc is not None:
+            soc_drop = prev_soc - current_soc
+            # Only count drops (discharge) during peak hours
+            if soc_drop > 0:
+                period = get_tou_period(reading.timestamp)
+                if period in ("peak", "super_peak"):
+                    peak_shaved_kwh += (soc_drop / 100) * BATTERY_CAPACITY_KWH
 
-        if period == "off_peak":
-            offpeak_wh += wh
-            offpeak_cost += (wh / 1000) * rate
-        else:  # peak or super_peak
-            peak_wh += wh
-            peak_cost += (wh / 1000) * rate
+        prev_soc = current_soc
 
     # Convert to kWh
     total_kwh = total_wh / 1000
     peak_kwh = peak_wh / 1000
     offpeak_kwh = offpeak_wh / 1000
 
-    # What it would have cost on grid during peak
-    would_have_cost = peak_cost + offpeak_cost
-
-    # What it actually cost (assuming battery charged during off-peak)
-    # All energy effectively charged at off-peak rate
+    # Savings = peak-shaved kWh × rate differential
     summer = is_summer(datetime.now())
+    peak_rate = TOU_SUMMER_PEAK_RATE if summer else TOU_WINTER_PEAK_RATE
     offpeak_rate = TOU_SUMMER_OFFPEAK_RATE if summer else TOU_WINTER_OFFPEAK_RATE
-    actual_cost = total_kwh * offpeak_rate
-
-    # Savings
-    savings = would_have_cost - actual_cost
+    savings = peak_shaved_kwh * (peak_rate - offpeak_rate)
 
     return {
         'total_kwh': round(total_kwh, 2),
         'peak_kwh': round(peak_kwh, 2),
         'offpeak_kwh': round(offpeak_kwh, 2),
+        'peak_shaved_kwh': round(peak_shaved_kwh, 2),
         'savings': round(savings, 2),
-        'would_have_cost': round(would_have_cost, 2),
-        'actual_cost': round(actual_cost, 2)
     }
