@@ -7,6 +7,7 @@ and returns setpoints to the driver.
 
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from zoneinfo import ZoneInfo
@@ -237,6 +238,35 @@ def get_today_stats() -> dict:
         result["max_temp"] = _today_stats["max_temp"]
 
     return result
+
+
+def update_daily_stats_db(db: Session, date_str: str, power_watts: int, period: str, indoor_temp: int = None):
+    """Update the daily_stats table with a new reading (for persistent history)."""
+    poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+
+    # Get or create the daily stats row
+    stats = db.query(DailyStats).filter(DailyStats.date == date_str).first()
+    if not stats:
+        stats = DailyStats(date=date_str)
+        db.add(stats)
+
+    if power_watts and power_watts > 0:
+        wh = int(power_watts * (poll_interval / 3600))
+        stats.total_wh = (stats.total_wh or 0) + wh
+
+        if period == "off_peak":
+            stats.offpeak_wh = (stats.offpeak_wh or 0) + wh
+        else:
+            stats.peak_wh = (stats.peak_wh or 0) + wh
+
+    stats.reading_count = (stats.reading_count or 0) + 1
+
+    if indoor_temp is not None:
+        stats.temp_sum = (stats.temp_sum or 0) + indoor_temp
+        if stats.min_temp is None or indoor_temp < stats.min_temp:
+            stats.min_temp = indoor_temp
+        if stats.max_temp is None or indoor_temp > stats.max_temp:
+            stats.max_temp = indoor_temp
 
 
 def get_db():
@@ -581,7 +611,9 @@ async def driver_sync(request: Request):
         db.add(reading)
         db.commit()
 
-        # Update today's running stats
+        # Update today's running stats (in-memory cache)
+        now_local = datetime.now(LOCAL_TZ)
+        period = get_tou_period(now_local)
         update_today_stats(
             power_watts=reading.power_watts,
             timestamp=reading.timestamp,
@@ -589,6 +621,16 @@ async def driver_sync(request: Request):
             outdoor_temp=reading.outdoor_temp_f,
             battery_soc=reading.battery_soc,
         )
+
+        # Update daily stats in DB (for history)
+        update_daily_stats_db(
+            db=db,
+            date_str=now_local.date().isoformat(),
+            power_watts=reading.power_watts,
+            period=period,
+            indoor_temp=reading.current_temp_f,
+        )
+        db.commit()
     finally:
         db.close()
 
@@ -620,35 +662,41 @@ async def dashboard():
 async def get_readings(
     hours: int = Query(default=24, ge=1, le=168),
     max_points: int = Query(default=200, ge=10, le=1000),
-    db: Session = Depends(get_db)
 ):
     """Get historical readings, downsampled for charting."""
-    since = datetime.utcnow() - timedelta(hours=hours)
-    readings = db.query(HeaterReading).filter(
-        HeaterReading.timestamp >= since
-    ).order_by(HeaterReading.timestamp).all()
+    def query_readings():
+        db = SessionLocal()
+        try:
+            since = datetime.utcnow() - timedelta(hours=hours)
+            readings = db.query(HeaterReading).filter(
+                HeaterReading.timestamp >= since
+            ).order_by(HeaterReading.timestamp).all()
 
-    if len(readings) > max_points:
-        step = len(readings) / max_points
-        sampled = [readings[int(i * step)] for i in range(max_points)]
-        sampled[-1] = readings[-1]
-        readings = sampled
+            if len(readings) > max_points:
+                step = len(readings) / max_points
+                sampled = [readings[int(i * step)] for i in range(max_points)]
+                sampled[-1] = readings[-1]
+                readings = sampled
 
-    return [
-        {
-            "timestamp": r.timestamp.isoformat() + "Z",
-            "power": r.power,
-            "current_temp_f": r.current_temp_f,
-            "target_temp_f": r.target_temp_f,
-            "heat_mode": r.heat_mode,
-            "active_heat_level": r.active_heat_level,
-            "power_watts": r.power_watts,
-            "oscillation": r.oscillation,
-            "outdoor_temp_f": r.outdoor_temp_f,
-            "battery_soc": r.battery_soc,
-        }
-        for r in readings
-    ]
+            return [
+                {
+                    "timestamp": r.timestamp.isoformat() + "Z",
+                    "power": r.power,
+                    "current_temp_f": r.current_temp_f,
+                    "target_temp_f": r.target_temp_f,
+                    "heat_mode": r.heat_mode,
+                    "active_heat_level": r.active_heat_level,
+                    "power_watts": r.power_watts,
+                    "oscillation": r.oscillation,
+                    "outdoor_temp_f": r.outdoor_temp_f,
+                    "battery_soc": r.battery_soc,
+                }
+                for r in readings
+            ]
+        finally:
+            db.close()
+
+    return await asyncio.to_thread(query_readings)
 
 
 @app.get("/api/status")
@@ -957,145 +1005,165 @@ async def get_sleep_status():
 @app.get("/api/savings")
 async def get_savings(
     hours: int = Query(default=24, ge=1, le=720),
-    db: Session = Depends(get_db)
 ):
     """Calculate peak shaving savings for the given time period."""
-    since = datetime.utcnow() - timedelta(hours=hours)
-    readings = db.query(HeaterReading).filter(
-        HeaterReading.timestamp >= since
-    ).order_by(HeaterReading.timestamp).all()
+    def query_savings():
+        db = SessionLocal()
+        try:
+            since = datetime.utcnow() - timedelta(hours=hours)
+            readings = db.query(HeaterReading).filter(
+                HeaterReading.timestamp >= since
+            ).order_by(HeaterReading.timestamp).all()
 
-    if not readings:
-        return {
-            "hours": hours,
-            "total_kwh": 0,
-            "peak_kwh": 0,
-            "offpeak_kwh": 0,
-            "savings": 0,
-            "current_period": get_tou_period(datetime.now()),
-            "current_rate": get_rate_for_period(datetime.now())[1]
-        }
+            if not readings:
+                return {
+                    "hours": hours,
+                    "total_kwh": 0,
+                    "peak_kwh": 0,
+                    "offpeak_kwh": 0,
+                    "savings": 0,
+                    "current_period": get_tou_period(datetime.now()),
+                    "current_rate": get_rate_for_period(datetime.now())[1]
+                }
 
-    poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
-    result = calculate_savings_from_readings(readings, poll_interval)
-    result["hours"] = hours
-    result["current_period"] = get_tou_period(datetime.now())
-    result["current_rate"] = get_rate_for_period(datetime.now())[1]
+            poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+            result = calculate_savings_from_readings(readings, poll_interval)
+            result["hours"] = hours
+            result["current_period"] = get_tou_period(datetime.now())
+            result["current_rate"] = get_rate_for_period(datetime.now())[1]
 
-    return result
+            return result
+        finally:
+            db.close()
+
+    return await asyncio.to_thread(query_savings)
 
 
 @app.get("/api/stats/today")
-async def get_stats_today(db: Session = Depends(get_db)):
+async def get_stats_today():
     """Get today's stats, falling back to DB if cache is empty."""
-    stats = get_today_stats()
+    def query_today():
+        stats = get_today_stats()
 
-    # If cache is empty/stale, query DB
-    if stats.get("total_kwh", 0) == 0 and stats.get("peak_shaved_kwh", 0) == 0:
-        today = datetime.now(LOCAL_TZ).date()
-        day_start = datetime.combine(today, datetime.min.time())
-        readings = db.query(HeaterReading).filter(
-            HeaterReading.timestamp >= day_start
-        ).order_by(HeaterReading.timestamp).all()
+        # If cache is empty/stale, query DB
+        if stats.get("total_kwh", 0) == 0 and stats.get("peak_shaved_kwh", 0) == 0:
+            db = SessionLocal()
+            try:
+                today = datetime.now(LOCAL_TZ).date()
+                day_start = datetime.combine(today, datetime.min.time())
+                readings = db.query(HeaterReading).filter(
+                    HeaterReading.timestamp >= day_start
+                ).order_by(HeaterReading.timestamp).all()
 
-        if readings:
-            poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
-            stats = calculate_savings_from_readings(readings, poll_interval)
-            stats["date"] = today.isoformat()
+                if readings:
+                    poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+                    stats = calculate_savings_from_readings(readings, poll_interval)
+                    stats["date"] = today.isoformat()
+            finally:
+                db.close()
 
-    # Add current period info
-    now = datetime.now(LOCAL_TZ)
-    stats["current_period"] = get_tou_period(now)
-    stats["current_rate"] = get_rate_for_period(now)[1]
-    return stats
+        # Add current period info
+        now = datetime.now(LOCAL_TZ)
+        stats["current_period"] = get_tou_period(now)
+        stats["current_rate"] = get_rate_for_period(now)[1]
+        return stats
+
+    return await asyncio.to_thread(query_today)
 
 
 @app.get("/api/stats/history")
 async def get_stats_history(
     days: int = Query(default=30, ge=1, le=365),
-    db: Session = Depends(get_db)
 ):
     """
     Get daily stats from today back to the first day with data.
 
     Returns list of daily stats and current savings streak.
     """
-    from collections import defaultdict
+    def query_history():
+        from collections import defaultdict
 
-    today = datetime.now(LOCAL_TZ).date()
-    poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
+        db = SessionLocal()
+        try:
+            today = datetime.now(LOCAL_TZ).date()
+            poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
 
-    # Single query: get ALL readings for the date range
-    start_date = today - timedelta(days=days - 1)
-    readings = db.query(HeaterReading).filter(
-        HeaterReading.timestamp >= datetime.combine(start_date, datetime.min.time())
-    ).order_by(HeaterReading.timestamp).all()
+            # Single query: get ALL readings for the date range
+            start_date = today - timedelta(days=days - 1)
+            readings = db.query(HeaterReading).filter(
+                HeaterReading.timestamp >= datetime.combine(start_date, datetime.min.time())
+            ).order_by(HeaterReading.timestamp).all()
 
-    # If we got readings, adjust start_date to first actual reading
-    if readings:
-        first_day = readings[0].timestamp.date()
-        days_since_first = (today - first_day).days + 1
-        days = min(days, days_since_first)
-        start_date = today - timedelta(days=days - 1)
+            # If we got readings, adjust start_date to first actual reading
+            actual_days = days
+            if readings:
+                first_day = readings[0].timestamp.date()
+                days_since_first = (today - first_day).days + 1
+                actual_days = min(days, days_since_first)
+                start_date = today - timedelta(days=actual_days - 1)
 
-    # Group readings by date
-    readings_by_day = defaultdict(list)
-    for r in readings:
-        day = r.timestamp.date()
-        if day >= start_date:
-            readings_by_day[day].append(r)
+            # Group readings by date
+            readings_by_day = defaultdict(list)
+            for r in readings:
+                day = r.timestamp.date()
+                if day >= start_date:
+                    readings_by_day[day].append(r)
 
-    daily_stats = []
+            daily_stats = []
 
-    # Compute stats for each day from today back
-    for days_ago in range(days):
-        day = today - timedelta(days=days_ago)
-        day_readings = readings_by_day.get(day, [])
+            # Compute stats for each day from today back
+            for days_ago in range(actual_days):
+                day = today - timedelta(days=days_ago)
+                day_readings = readings_by_day.get(day, [])
 
-        if not day_readings:
-            daily_stats.append({
-                "date": day.isoformat(),
-                "total_kwh": 0,
-                "peak_kwh": 0,
-                "offpeak_kwh": 0,
-                "savings": 0,
-                "would_have_cost": 0,
-                "actual_cost": 0,
-            })
-            continue
+                if not day_readings:
+                    daily_stats.append({
+                        "date": day.isoformat(),
+                        "total_kwh": 0,
+                        "peak_kwh": 0,
+                        "offpeak_kwh": 0,
+                        "savings": 0,
+                        "would_have_cost": 0,
+                        "actual_cost": 0,
+                    })
+                    continue
 
-        result = calculate_savings_from_readings(day_readings, poll_interval)
-        result["date"] = day.isoformat()
+                result = calculate_savings_from_readings(day_readings, poll_interval)
+                result["date"] = day.isoformat()
 
-        # Add temp stats
-        temps = [r.current_temp_f for r in day_readings if r.current_temp_f is not None]
-        if temps:
-            result["avg_temp"] = round(sum(temps) / len(temps))
-            result["min_temp"] = min(temps)
-            result["max_temp"] = max(temps)
+                # Add temp stats
+                temps = [r.current_temp_f for r in day_readings if r.current_temp_f is not None]
+                if temps:
+                    result["avg_temp"] = round(sum(temps) / len(temps))
+                    result["min_temp"] = min(temps)
+                    result["max_temp"] = max(temps)
 
-        daily_stats.append(result)
+                daily_stats.append(result)
 
-    # Calculate streak (consecutive days with savings > 0)
-    streak = 0
-    for stat in daily_stats:
-        if stat.get("savings", 0) > 0:
-            streak += 1
-        else:
-            break
+            # Calculate streak (consecutive days with savings > 0)
+            streak = 0
+            for stat in daily_stats:
+                if stat.get("savings", 0) > 0:
+                    streak += 1
+                else:
+                    break
 
-    # Calculate month totals
-    month_start = today.replace(day=1)
-    month_stats = [s for s in daily_stats if s["date"] >= month_start.isoformat()]
-    month_savings = sum(s.get("savings", 0) for s in month_stats)
-    month_kwh = sum(s.get("total_kwh", 0) for s in month_stats)
+            # Calculate month totals
+            month_start = today.replace(day=1)
+            month_stats = [s for s in daily_stats if s["date"] >= month_start.isoformat()]
+            month_savings = sum(s.get("savings", 0) for s in month_stats)
+            month_kwh = sum(s.get("total_kwh", 0) for s in month_stats)
 
-    return {
-        "days": daily_stats,
-        "streak": streak,
-        "month_savings": round(month_savings, 2),
-        "month_kwh": round(month_kwh, 2),
-    }
+            return {
+                "days": daily_stats,
+                "streak": streak,
+                "month_savings": round(month_savings, 2),
+                "month_kwh": round(month_kwh, 2),
+            }
+        finally:
+            db.close()
+
+    return await asyncio.to_thread(query_history)
 
 
 # =============================================================================

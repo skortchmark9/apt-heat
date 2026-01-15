@@ -69,3 +69,20 @@ class HeaterReading(Base):
 
     # Battery
     battery_soc = Column(Integer)
+
+
+class DailyStats(Base):
+    """Pre-aggregated daily statistics for fast history queries."""
+
+    __tablename__ = "daily_stats"
+
+    date = Column(String, primary_key=True)  # YYYY-MM-DD
+    total_wh = Column(Integer, default=0)
+    peak_wh = Column(Integer, default=0)
+    offpeak_wh = Column(Integer, default=0)
+    peak_cost_cents = Column(Integer, default=0)  # Store as cents to avoid float
+    offpeak_cost_cents = Column(Integer, default=0)
+    reading_count = Column(Integer, default=0)
+    temp_sum = Column(Integer, default=0)
+    min_temp = Column(Integer)
+    max_temp = Column(Integer)

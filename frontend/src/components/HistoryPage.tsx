@@ -20,11 +20,12 @@ interface HistoryData {
   month_kwh: number;
 }
 
-export function HistoryPage() {
+export function HistoryPage({ isActive = true }: { isActive?: boolean }) {
   const [history, setHistory] = useState<HistoryData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!isActive) return;
     const fetchStats = async () => {
       try {
         const res = await fetch('/api/stats/history?days=30');
@@ -41,7 +42,7 @@ export function HistoryPage() {
     fetchStats();
     const interval = setInterval(fetchStats, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isActive]);
 
   if (loading) {
     return (

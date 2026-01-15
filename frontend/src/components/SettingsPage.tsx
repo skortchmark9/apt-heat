@@ -222,7 +222,7 @@ function ServerStateTable({ state, onSetChannel }: { state: Channel[]; onSetChan
   );
 }
 
-export function SettingsPage() {
+export function SettingsPage({ isActive = true }: { isActive?: boolean }) {
   const [data, setData] = useState<ChannelData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -244,10 +244,11 @@ export function SettingsPage() {
   };
 
   useEffect(() => {
+    if (!isActive) return;
     fetchChannels();
-    const interval = setInterval(fetchChannels, 2000);
+    const interval = setInterval(fetchChannels, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isActive]);
 
   const handleSetChannel = async (key: string, value: any) => {
     try {

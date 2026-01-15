@@ -9,7 +9,7 @@ import { useHeaterStatus } from '../hooks/useHeaterStatus';
 import { useReadings } from '../hooks/useReadings';
 import { useBatteryStatus } from '../hooks/useBatteryStatus';
 
-export function HomePage() {
+export function HomePage({ isActive: _isActive = true }: { isActive?: boolean }) {
   const [chartHours, setChartHours] = useState(24);
   const [showSleepModal, setShowSleepModal] = useState(false);
 

@@ -12,16 +12,16 @@ function AppContent() {
   return (
     <>
       <div style={{ display: path === '/' ? 'block' : 'none' }}>
-        <HomePage />
+        <HomePage isActive={path === '/'} />
       </div>
       <div style={{ display: path === '/battery' ? 'block' : 'none' }}>
-        <BatteryPage />
+        <BatteryPage isActive={path === '/battery'} />
       </div>
       <div style={{ display: path === '/history' ? 'block' : 'none' }}>
-        <HistoryPage />
+        <HistoryPage isActive={path === '/history'} />
       </div>
       <div style={{ display: path === '/settings' ? 'block' : 'none' }}>
-        <SettingsPage />
+        <SettingsPage isActive={path === '/settings'} />
       </div>
       <BottomNav />
     </>

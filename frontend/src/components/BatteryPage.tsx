@@ -324,14 +324,15 @@ function PowerFlowDiagram({ wattsIn, wattsOut, soc }: { wattsIn: number; wattsOu
   );
 }
 
-export function BatteryPage() {
+export function BatteryPage({ isActive = true }: { isActive?: boolean }) {
   const { status, loading, error, refresh } = useBatteryStatus();
   const [toggling, setToggling] = useState(false);
   const [plugOn, setPlugOn] = useState<boolean | null>(null);
   const [togglingPlug, setTogglingPlug] = useState(false);
 
-  // Fetch plug status
+  // Fetch plug status (only when active)
   useEffect(() => {
+    if (!isActive) return;
     const fetchPlugStatus = async () => {
       try {
         const res = await fetch('/api/plug');
@@ -346,7 +347,7 @@ export function BatteryPage() {
     fetchPlugStatus();
     const interval = setInterval(fetchPlugStatus, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isActive]);
 
   const handleTogglePlug = async () => {
     setTogglingPlug(true);
