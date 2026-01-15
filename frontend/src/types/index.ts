@@ -93,4 +93,5 @@ export interface BatteryStatus {
   automation_mode?: 'manual' | 'tou';
   driver_control_enabled?: boolean;
   bms_temp_c?: number;
+  remain_time_mins?: number;
 }

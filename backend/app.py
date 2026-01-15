@@ -700,6 +700,7 @@ async def api_battery_status():
         "charging": get_channel_value(latest_channels, "battery_charging") or False,
         "discharging": get_channel_value(latest_channels, "battery_discharging") or False,
         "bms_temp_c": get_channel_value(latest_channels, "battery_bms_temp"),
+        "remain_time_mins": get_channel_value(latest_channels, "battery_pd_remain_time"),
         # Server's current targets (updates immediately)
         "target_charge_power": targets.get("battery_charge_power"),
         "automation_mode": targets.get("automation_mode"),

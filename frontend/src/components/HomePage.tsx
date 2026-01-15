@@ -20,6 +20,7 @@ export function HomePage() {
     savings,
     monthlySavings,
     pending,
+    streak,
     effectiveTargetTemp,
     effectivePower,
     effectiveOscillation,
@@ -58,7 +59,7 @@ export function HomePage() {
     <>
       <Hero
         savingsToday={savings?.savings ?? 0}
-        streakDays={null}
+        streakDays={streak}
       />
 
       <StatusCarousel

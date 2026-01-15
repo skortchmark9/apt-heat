@@ -15,6 +15,7 @@ export function useHeaterStatus() {
   const [sleepSchedule, setSleepSchedule] = useState<SleepSchedule | null>(null);
   const [savings, setSavings] = useState<SavingsData | null>(null);
   const [monthlySavings, setMonthlySavings] = useState<SavingsData | null>(null);
+  const [streak, setStreak] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingTargets>({});
@@ -38,11 +39,12 @@ export function useHeaterStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const [statusRes, sleepRes, savingsRes, monthlyRes] = await Promise.all([
+      const [statusRes, sleepRes, savingsRes, monthlyRes, historyRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/sleep'),
         fetch('/api/savings?hours=24'),
         fetch('/api/savings?hours=720'),
+        fetch('/api/stats/history?days=30'),
       ]);
 
       if (statusRes.ok) {
@@ -58,6 +60,10 @@ export function useHeaterStatus() {
       }
       if (monthlyRes.ok) {
         setMonthlySavings(await monthlyRes.json());
+      }
+      if (historyRes.ok) {
+        const history = await historyRes.json();
+        setStreak(history.streak ?? 0);
       }
       setError(null);
     } catch (e) {
@@ -143,6 +149,7 @@ export function useHeaterStatus() {
     sleepSchedule,
     savings,
     monthlySavings,
+    streak,
     loading,
     error,
     pending,

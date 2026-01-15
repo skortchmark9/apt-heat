@@ -424,6 +424,11 @@ export function BatteryPage() {
   // Convert BMS temp from C to F
   const bmsTempC = status.bms_temp_c;
   const bmsTempF = bmsTempC != null ? Math.round(bmsTempC * 9/5 + 32) : null;
+  // Format remaining time
+  const remainMins = status.remain_time_mins;
+  const remainTimeStr = remainMins != null && remainMins > 0
+    ? `${Math.floor(remainMins / 60)}h ${remainMins % 60}m`
+    : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -434,12 +439,20 @@ export function BatteryPage() {
             <div className="text-sm opacity-90 mb-1">EcoFlow Delta Pro</div>
             <div className="text-3xl font-bold">Battery Status</div>
           </div>
-          {bmsTempF != null && (
-            <div className="text-right">
-              <div className="text-2xl font-bold">{bmsTempF}°F</div>
-              <div className="text-xs opacity-75">BMS Temp</div>
-            </div>
-          )}
+          <div className="text-right space-y-1">
+            {remainTimeStr && (
+              <div>
+                <div className="text-xl font-bold">{remainTimeStr}</div>
+                <div className="text-xs opacity-75">Remaining</div>
+              </div>
+            )}
+            {bmsTempF != null && (
+              <div>
+                <div className="text-lg font-semibold">{bmsTempF}°F</div>
+                <div className="text-xs opacity-75">BMS Temp</div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
