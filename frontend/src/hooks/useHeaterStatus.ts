@@ -39,11 +39,11 @@ export function useHeaterStatus() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const [statusRes, sleepRes, todayRes, historyRes] = await Promise.all([
+      // Fast endpoints first - don't wait for history
+      const [statusRes, sleepRes, todayRes] = await Promise.all([
         fetch('/api/status'),
         fetch('/api/sleep'),
-        fetch('/api/stats/today'),  // Uses in-memory cache, no DB hit
-        fetch('/api/stats/history?days=30'),
+        fetch('/api/stats/today'),
       ]);
 
       if (statusRes.ok) {
@@ -57,16 +57,21 @@ export function useHeaterStatus() {
       if (todayRes.ok) {
         setSavings(await todayRes.json());
       }
-      if (historyRes.ok) {
-        const history = await historyRes.json();
-        setStreak(history.streak ?? 0);
-        // Use month_savings from history endpoint (already calculated)
-        setMonthlySavings({ savings: history.month_savings ?? 0 } as SavingsData);
-      }
       setError(null);
+      setLoading(false);
+
+      // History loads in background - doesn't block UI
+      fetch('/api/stats/history?days=30')
+        .then(res => res.ok ? res.json() : null)
+        .then(history => {
+          if (history) {
+            setStreak(history.streak ?? 0);
+            setMonthlySavings({ savings: history.month_savings ?? 0 } as SavingsData);
+          }
+        })
+        .catch(() => {}); // Ignore history errors
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to fetch status');
-    } finally {
       setLoading(false);
     }
   }, []);
