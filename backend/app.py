@@ -457,6 +457,7 @@ def get_automation_targets() -> dict:
     if sleep_target is not None:
         desired_temp = sleep_target
         auto_targets["heater_sleep_mode"] = True
+        auto_targets["heater_display"] = False  # Turn off display in sleep mode
 
     if period == "off_peak":
         # Bang-bang controller: alternate between heating and charging
