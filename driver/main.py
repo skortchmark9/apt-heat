@@ -307,6 +307,26 @@ class Driver:
             except Exception as e:
                 print(f"  [heater] set error: {e}")
 
+        if 'heater_oscillation' in targets and self.heater:
+            try:
+                target = targets['heater_oscillation']
+                current = self.slate.get('heater_oscillation')
+                if target != current:
+                    self.heater.set_oscillation(target)
+                    print(f"  [heater] set oscillation: {target}")
+            except Exception as e:
+                print(f"  [heater] set error: {e}")
+
+        if 'heater_display' in targets and self.heater:
+            try:
+                target = targets['heater_display']
+                current = self.slate.get('heater_display')
+                if target != current:
+                    self.heater.set_display(target)
+                    print(f"  [heater] set display: {target}")
+            except Exception as e:
+                print(f"  [heater] set error: {e}")
+
         # Plug targets
         if 'plug_on' in targets and self.plug:
             try:
