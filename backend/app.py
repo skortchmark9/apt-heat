@@ -112,6 +112,10 @@ automation_mode = "tou"  # "manual" | "tou"
 # Bang-bang controller state for off-peak: "heating" or "charging"
 offpeak_state = "heating"
 
+# Plug manual override: if user turns plug ON during peak, don't fight them
+# Resets when entering off-peak
+plug_peak_override = False
+
 # Cache of latest channel data from driver
 latest_channels = {}
 
@@ -442,9 +446,13 @@ def get_automation_targets() -> dict:
       HEATING state: charge=0, heat at target temp
       CHARGING state: charge=1500W, target-3 (heater off)
 
+    Plug control:
+      Off-peak: plug ON (charge from grid)
+      Peak: plug OFF (run on battery), unless user manually turned it on
+
     Returns dict of targets to overlay on user targets.
     """
-    global offpeak_state
+    global offpeak_state, plug_peak_override
 
     now = datetime.now(LOCAL_TZ)
     period = get_tou_period(now)
@@ -482,12 +490,20 @@ def get_automation_targets() -> dict:
             auto_targets["heater_heat_mode"] = "High"
 
         auto_targets["offpeak_state"] = offpeak_state
+
+        # Off-peak: plug ON, reset override for next peak
+        auto_targets["plug_on"] = True
+        plug_peak_override = False
     else:
         # Peak: no charging, normal heating
         auto_targets["battery_charge_power"] = 0
         auto_targets["heater_target_temp"] = desired_temp
         auto_targets["heater_heat_mode"] = "High"
         offpeak_state = "heating"  # Reset for next off-peak
+
+        # Peak: plug OFF, unless user manually overrode
+        if not plug_peak_override:
+            auto_targets["plug_on"] = False
 
     # SAFETY: Low battery + unplugged = turn off heater
     battery_soc = get_channel_value(latest_channels, "battery_soc")
@@ -826,11 +842,26 @@ async def toggle_oscillation():
 
 @app.post("/api/plug/toggle")
 async def toggle_plug():
-    """Toggle plug power (updates target for next driver sync)."""
+    """Toggle plug power (updates target for next driver sync).
+
+    If turning ON during peak hours, sets manual override so TOU automation
+    won't fight the user and turn it back off.
+    """
+    global plug_peak_override
+
     current = user_targets.get("plug_on", True)
-    user_targets["plug_on"] = not current
+    new_state = not current
+    user_targets["plug_on"] = new_state
     save_settings(targets=user_targets)
-    return {"plug_on": not current}
+
+    # If turning ON during peak, set override so automation doesn't fight user
+    if new_state:
+        period = get_tou_period(datetime.now(LOCAL_TZ))
+        if period != "off_peak":
+            plug_peak_override = True
+            print(f"[PLUG] Manual override set - user turned plug ON during {period}")
+
+    return {"plug_on": new_state}
 
 
 @app.get("/api/plug")
@@ -907,7 +938,7 @@ async def get_channels():
 @app.post("/api/channels/set")
 async def set_channel(data: dict):
     """Set a controllable channel's target value."""
-    global driver_control_enabled, automation_mode
+    global driver_control_enabled, automation_mode, plug_peak_override
 
     key = data.get("key")
     value = data.get("value")
@@ -919,12 +950,16 @@ async def set_channel(data: dict):
         "plug_on", "battery_charge_power",
     }
 
-    # Server state channels
-    SERVER_CONTROLLABLE = {"automation_mode", "driver_control_enabled"}
-
     if key in DEVICE_CONTROLLABLE:
         user_targets[key] = value
         save_settings(targets=user_targets)
+
+        # If turning plug ON during peak, set override so automation doesn't fight user
+        if key == "plug_on" and value:
+            period = get_tou_period(datetime.now(LOCAL_TZ))
+            if period != "off_peak":
+                plug_peak_override = True
+                print(f"[PLUG] Manual override set - user turned plug ON during {period}")
     elif key == "automation_mode":
         automation_mode = value
         save_settings(mode=value)
