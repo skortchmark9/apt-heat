@@ -503,14 +503,7 @@ def get_automation_targets() -> dict:
 
         # Peak: plug OFF, unless user manually overrode
         if not plug_peak_override:
-            # Check if plug is currently ON - if so, user turned it on manually
-            # (via physical button, Tapo app, etc.) - respect that
-            current_plug_on = get_channel_value(latest_channels, "plug_on")
-            if current_plug_on:
-                plug_peak_override = True
-                print(f"[PLUG] Detected manual override - plug is ON during {period}")
-            else:
-                auto_targets["plug_on"] = False
+            auto_targets["plug_on"] = False
 
     # SAFETY: Low battery + unplugged = turn off heater
     battery_soc = get_channel_value(latest_channels, "battery_soc")
