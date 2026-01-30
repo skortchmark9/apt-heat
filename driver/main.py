@@ -133,36 +133,29 @@ class Driver:
             if not status:
                 raise ConnectionError("Empty response from heater")
             self._failures['heater'] = 0
-            # DPS 1: Power on/off
-            self.slate.set('heater_power', status.get('1'))
-            # DPS 3: Current room temperature (°F)
-            self.slate.set('heater_current_temp', status.get('3'))
-            # DPS 5: Heat mode setting (Low/Medium/High)
-            self.slate.set('heater_heat_mode', status.get('5'))
-            # DPS 8: Oscillation on/off
-            self.slate.set('heater_oscillation', status.get('8'))
-            # DPS 10: Display/LED on/off (False = night mode)
-            self.slate.set('heater_display', status.get('10'))
-            # DPS 11: Active heat level (Stop/Low/Medium/High, read-only)
-            self.slate.set('heater_active_heat_level', status.get('11'))
-            # DPS 14: Target temperature setpoint (°F)
-            self.slate.set('heater_target_temp', status.get('14'))
-            # DPS 101: Person detection / ClimaSense on/off
-            self.slate.set('heater_person_detection', status.get('101'))
-            # DPS 102: Auto-on when person detected
-            self.slate.set('heater_auto_on', status.get('102'))
-            # DPS 103: Person detection timeout (5min/15min/30min)
-            self.slate.set('heater_detection_timeout', status.get('103'))
-            # DPS 104: Unknown
-            self.slate.set('heater_dps_104', status.get('104'))
-            # DPS 105: Timer value (base ~59, + seconds remaining when active)
-            self.slate.set('heater_timer_value', status.get('105'))
-            # DPS 106: Cumulative energy usage (kWh)
-            self.slate.set('heater_energy_kwh', status.get('106'))
-            # DPS 107: Session heating flag
-            self.slate.set('heater_session_heating', status.get('107'))
-            # DPS 108: Fault code (0=none, 16=tip-over)
-            self.slate.set('heater_fault_code', status.get('108'))
+            # Only update slate for DPS keys actually present in the response.
+            # tinytuya often returns partial DPS — writing None would cause
+            # apply_targets() to re-send commands every cycle.
+            dps_map = {
+                '1': 'heater_power',
+                '3': 'heater_current_temp',
+                '5': 'heater_heat_mode',
+                '8': 'heater_oscillation',
+                '10': 'heater_display',
+                '11': 'heater_active_heat_level',
+                '14': 'heater_target_temp',
+                '101': 'heater_person_detection',
+                '102': 'heater_auto_on',
+                '103': 'heater_detection_timeout',
+                '104': 'heater_dps_104',
+                '105': 'heater_timer_value',
+                '106': 'heater_energy_kwh',
+                '107': 'heater_session_heating',
+                '108': 'heater_fault_code',
+            }
+            for dps_id, channel_name in dps_map.items():
+                if dps_id in status:
+                    self.slate.set(channel_name, status[dps_id])
         except Exception as e:
             self._failures['heater'] += 1
             if self._failures['heater'] <= 3 or self._failures['heater'] % 10 == 0:
@@ -303,6 +296,17 @@ class Driver:
             print(f"  [server] error: {e}")
         return None
 
+    def _apply_heater_target(self, key: str, target, setter):
+        """Apply a single heater target if it differs from current slate value."""
+        current = self.slate.get(key)
+        # Skip if we've never read this value — avoids blind-setting on startup
+        if current is None:
+            return
+        if target != current:
+            setter(target)
+            self.slate.set(key, target)  # Update slate to prevent re-sending
+            print(f"  [heater] set {key}: {target}")
+
     def apply_targets(self, targets: dict):
         """Apply target setpoints received from server."""
         if not targets:
@@ -313,66 +317,32 @@ class Driver:
             return
 
         # Heater targets
-        if 'heater_target_temp' in targets and self.heater:
-            try:
-                target = targets['heater_target_temp']
-                current = self.slate.get('heater_target_temp')
-                if target != current:
-                    self.heater.set_target_temp(target)
-                    print(f"  [heater] set target_temp: {target}")
-            except Exception as e:
-                print(f"  [heater] set error: {e}")
-
-        if 'heater_power' in targets and self.heater:
-            try:
-                target = targets['heater_power']
-                current = self.slate.get('heater_power')
-                if target != current:
-                    self.heater.set_power(target)
-                    print(f"  [heater] set power: {target}")
-            except Exception as e:
-                print(f"  [heater] set error: {e}")
-
-        if 'heater_heat_mode' in targets and self.heater:
-            try:
-                target = targets['heater_heat_mode']
-                current = self.slate.get('heater_heat_mode')
-                if target != current:
-                    self.heater.set_heat_mode(target)
-                    print(f"  [heater] set heat_mode: {target}")
-            except Exception as e:
-                print(f"  [heater] set error: {e}")
-
-        if 'heater_oscillation' in targets and self.heater:
-            try:
-                target = targets['heater_oscillation']
-                current = self.slate.get('heater_oscillation')
-                if target != current:
-                    self.heater.set_oscillation(target)
-                    print(f"  [heater] set oscillation: {target}")
-            except Exception as e:
-                print(f"  [heater] set error: {e}")
-
-        if 'heater_display' in targets and self.heater:
-            try:
-                target = targets['heater_display']
-                current = self.slate.get('heater_display')
-                if target != current:
-                    self.heater.set_display(target)
-                    print(f"  [heater] set display: {target}")
-            except Exception as e:
-                print(f"  [heater] set error: {e}")
+        if self.heater:
+            heater_targets = {
+                'heater_target_temp': self.heater.set_target_temp,
+                'heater_power': self.heater.set_power,
+                'heater_heat_mode': self.heater.set_heat_mode,
+                'heater_oscillation': self.heater.set_oscillation,
+                'heater_display': self.heater.set_display,
+            }
+            for key, setter in heater_targets.items():
+                if key in targets:
+                    try:
+                        self._apply_heater_target(key, targets[key], setter)
+                    except Exception as e:
+                        print(f"  [heater] set {key} error: {e}")
 
         # Plug targets
         if 'plug_on' in targets and self.plug:
             try:
                 target = targets['plug_on']
                 current = self.slate.get('plug_on')
-                if target != current:
+                if current is not None and target != current:
                     if target:
                         self.plug.turn_on()
                     else:
                         self.plug.turn_off()
+                    self.slate.set('plug_on', target)
                     print(f"  [plug] set on: {target}")
             except Exception as e:
                 print(f"  [plug] set error: {e}")
