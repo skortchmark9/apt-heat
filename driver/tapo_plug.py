@@ -37,6 +37,9 @@ IFTTT_KEY = os.getenv("IFTTT_WEBHOOK_KEY")
 IFTTT_EVENT_ON = os.getenv("IFTTT_EVENT_ON", "set_outlet_power_on")
 IFTTT_EVENT_OFF = os.getenv("IFTTT_EVENT_OFF", "set_outlet_power_off")
 
+# Timeout for local device operations (seconds)
+DEVICE_TIMEOUT = 5
+
 
 class TapoPlug:
     """
@@ -91,33 +94,42 @@ class TapoPlug:
         if self._device is None:
             from tapo import ApiClient
             self._client = ApiClient(TPLINK_EMAIL, TPLINK_PASSWORD)
-            self._device = await self._client.p115(TAPO_IP)
+            self._device = await asyncio.wait_for(
+                self._client.p115(TAPO_IP), timeout=DEVICE_TIMEOUT
+            )
         return self._device
+
+    def _reset_device(self):
+        """Reset device connection so next call reconnects."""
+        self._device = None
+        self._client = None
 
     async def _local_turn_on(self) -> dict:
         """Turn on via local API."""
         try:
             device = await self._get_device()
-            await device.on()
+            await asyncio.wait_for(device.on(), timeout=DEVICE_TIMEOUT)
             return {"success": True}
         except Exception as e:
+            self._reset_device()
             return {"success": False, "error": str(e)}
 
     async def _local_turn_off(self) -> dict:
         """Turn off via local API."""
         try:
             device = await self._get_device()
-            await device.off()
+            await asyncio.wait_for(device.off(), timeout=DEVICE_TIMEOUT)
             return {"success": True}
         except Exception as e:
+            self._reset_device()
             return {"success": False, "error": str(e)}
 
     async def _local_status(self) -> dict:
         """Get status via local API."""
         try:
             device = await self._get_device()
-            info = await device.get_device_info()
-            energy = await device.get_energy_usage()
+            info = await asyncio.wait_for(device.get_device_info(), timeout=DEVICE_TIMEOUT)
+            energy = await asyncio.wait_for(device.get_energy_usage(), timeout=DEVICE_TIMEOUT)
             return {
                 "success": True,
                 "on": info.device_on,
@@ -128,14 +140,15 @@ class TapoPlug:
                 "month_runtime_min": energy.month_runtime,
             }
         except Exception as e:
+            self._reset_device()
             return {"success": False, "error": str(e)}
 
     async def _local_full_status(self) -> dict:
         """Get full status with all available fields via local API."""
         try:
             device = await self._get_device()
-            info = await device.get_device_info()
-            energy = await device.get_energy_usage()
+            info = await asyncio.wait_for(device.get_device_info(), timeout=DEVICE_TIMEOUT)
+            energy = await asyncio.wait_for(device.get_energy_usage(), timeout=DEVICE_TIMEOUT)
             info_dict = info.to_dict()
             energy_dict = energy.to_dict()
             return {
@@ -162,6 +175,7 @@ class TapoPlug:
                 "month_runtime": energy_dict.get("month_runtime"),
             }
         except Exception as e:
+            self._reset_device()
             return {"success": False, "error": str(e)}
 
     def _ifttt_trigger(self, event: str) -> dict:

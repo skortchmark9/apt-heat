@@ -73,6 +73,9 @@ class Slate:
         return f"Slate({list(self._channels.keys())})"
 
 
+RECONNECT_INTERVAL = 30  # Retry failed device init every N cycles
+
+
 class Driver:
     """Main driver that polls devices and syncs with server."""
 
@@ -85,28 +88,40 @@ class Driver:
         # Track last-set values to avoid redundant commands
         self._last_set = {}
 
-        # Initialize devices
-        print("Initializing devices...")
-        try:
-            self.heater = Heater(mode='local')
-            print(f"  Heater: OK (mode={self.heater.mode})")
-        except Exception as e:
-            print(f"  Heater: FAILED ({e})")
-            self.heater = None
+        # Track consecutive failures per device for backoff
+        self._failures = {'heater': 0, 'plug': 0, 'battery': 0}
 
-        try:
-            self.plug = TapoPlug(mode='local')
-            print(f"  Plug: OK (mode={self.plug.mode})")
-        except Exception as e:
-            print(f"  Plug: FAILED ({e})")
-            self.plug = None
+        # Initialize devices (non-blocking — failures are OK)
+        self.heater = None
+        self.plug = None
+        self.battery = None
+        self._init_devices()
 
-        try:
-            self.battery = EcoFlowBattery()
-            print(f"  Battery: OK")
-        except Exception as e:
-            print(f"  Battery: FAILED ({e})")
-            self.battery = None
+    def _init_devices(self):
+        """Try to initialize any missing devices."""
+        if self.heater is None:
+            try:
+                self.heater = Heater(mode='local')
+                self._failures['heater'] = 0
+                print(f"  Heater: OK (mode={self.heater.mode})")
+            except Exception as e:
+                print(f"  Heater: FAILED ({e})")
+
+        if self.plug is None:
+            try:
+                self.plug = TapoPlug(mode='local')
+                self._failures['plug'] = 0
+                print(f"  Plug: OK (mode={self.plug.mode})")
+            except Exception as e:
+                print(f"  Plug: FAILED ({e})")
+
+        if self.battery is None:
+            try:
+                self.battery = EcoFlowBattery()
+                self._failures['battery'] = 0
+                print(f"  Battery: OK")
+            except Exception as e:
+                print(f"  Battery: FAILED ({e})")
 
     def update_heater(self):
         """Read heater state into slate."""
@@ -115,6 +130,9 @@ class Driver:
 
         try:
             status = self.heater.get_status()
+            if not status:
+                raise ConnectionError("Empty response from heater")
+            self._failures['heater'] = 0
             # DPS 1: Power on/off
             self.slate.set('heater_power', status.get('1'))
             # DPS 3: Current room temperature (°F)
@@ -146,7 +164,12 @@ class Driver:
             # DPS 108: Fault code (0=none, 16=tip-over)
             self.slate.set('heater_fault_code', status.get('108'))
         except Exception as e:
-            print(f"  [heater] read error: {e}")
+            self._failures['heater'] += 1
+            if self._failures['heater'] <= 3 or self._failures['heater'] % 10 == 0:
+                print(f"  [heater] read error ({self._failures['heater']}x): {e}")
+            if self._failures['heater'] >= 5:
+                print(f"  [heater] too many failures, will reinit")
+                self.heater = None
 
     def update_plug(self):
         """Read plug state into slate."""
@@ -156,6 +179,7 @@ class Driver:
         try:
             status = self.plug.get_full_status()
             if status.get('success'):
+                self._failures['plug'] = 0
                 # Device state
                 self.slate.set('plug_on', status.get('device_on'))
                 self.slate.set('plug_on_time', status.get('on_time'))
@@ -172,8 +196,15 @@ class Driver:
                 self.slate.set('plug_today_runtime_min', status.get('today_runtime'))
                 self.slate.set('plug_month_energy_wh', status.get('month_energy'))
                 self.slate.set('plug_month_runtime_min', status.get('month_runtime'))
+            else:
+                raise ConnectionError(status.get('error', 'Unknown plug error'))
         except Exception as e:
-            print(f"  [plug] read error: {e}")
+            self._failures['plug'] += 1
+            if self._failures['plug'] <= 3 or self._failures['plug'] % 10 == 0:
+                print(f"  [plug] read error ({self._failures['plug']}x): {e}")
+            if self._failures['plug'] >= 5:
+                print(f"  [plug] too many failures, will reinit")
+                self.plug = None
 
     def update_battery(self):
         """Read battery state into slate."""
@@ -243,7 +274,12 @@ class Driver:
                     self.slate.set('battery_inv_cfg_ac_enabled', raw.get('inv.cfgAcEnabled'))
                     self.slate.set('battery_inv_cfg_slow_chg_watts', raw.get('inv.cfgSlowChgWatts'))
         except Exception as e:
-            print(f"  [battery] read error: {e}")
+            self._failures['battery'] += 1
+            if self._failures['battery'] <= 3 or self._failures['battery'] % 10 == 0:
+                print(f"  [battery] read error ({self._failures['battery']}x): {e}")
+            if self._failures['battery'] >= 5:
+                print(f"  [battery] too many failures, will reinit")
+                self.battery = None
 
     def post_to_server(self) -> dict | None:
         """POST slate to server, return target setpoints."""
@@ -369,6 +405,19 @@ class Driver:
         self.cycle += 1
         cycle_start = time.time()
 
+        # Periodically retry failed device connections
+        if self.cycle % RECONNECT_INTERVAL == 0:
+            missing = []
+            if self.heater is None:
+                missing.append('heater')
+            if self.plug is None:
+                missing.append('plug')
+            if self.battery is None:
+                missing.append('battery')
+            if missing:
+                print(f"  [reconnect] retrying: {', '.join(missing)}")
+                self._init_devices()
+
         # Update devices
         self.update_heater()
         self.update_plug()
@@ -388,8 +437,15 @@ class Driver:
 
     def run(self):
         """Main loop."""
+        devices = [
+            f"heater={'OK' if self.heater else 'MISSING'}",
+            f"plug={'OK' if self.plug else 'MISSING'}",
+            f"battery={'OK' if self.battery else 'MISSING'}",
+        ]
         print(f"\nStarting driver loop (period={self.period}s)")
         print(f"Server: {self.server_url}")
+        print(f"Devices: {', '.join(devices)}")
+        print(f"Reconnect interval: {RECONNECT_INTERVAL} cycles")
         print("-" * 40)
 
         while True:

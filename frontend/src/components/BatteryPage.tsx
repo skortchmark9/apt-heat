@@ -328,22 +328,25 @@ export function BatteryPage({ isActive = true }: { isActive?: boolean }) {
   const { status, loading, error, refresh } = useBatteryStatus();
   const [toggling, setToggling] = useState(false);
   const [plugOn, setPlugOn] = useState<boolean | null>(null);
+  const [plugAutoControlled, setPlugAutoControlled] = useState(false);
   const [togglingPlug, setTogglingPlug] = useState(false);
 
   // Fetch plug status (only when active)
+  const fetchPlugStatus = async () => {
+    try {
+      const res = await fetch('/api/plug');
+      if (res.ok) {
+        const data = await res.json();
+        setPlugOn(data.target_on ?? data.on);
+        setPlugAutoControlled(data.auto_controlled ?? false);
+      }
+    } catch (e) {
+      console.error('Failed to fetch plug status:', e);
+    }
+  };
+
   useEffect(() => {
     if (!isActive) return;
-    const fetchPlugStatus = async () => {
-      try {
-        const res = await fetch('/api/plug');
-        if (res.ok) {
-          const data = await res.json();
-          setPlugOn(data.target_on ?? data.on);
-        }
-      } catch (e) {
-        console.error('Failed to fetch plug status:', e);
-      }
-    };
     fetchPlugStatus();
     const interval = setInterval(fetchPlugStatus, 5000);
     return () => clearInterval(interval);
@@ -354,8 +357,8 @@ export function BatteryPage({ isActive = true }: { isActive?: boolean }) {
     try {
       const res = await fetch('/api/plug/toggle', { method: 'POST' });
       if (res.ok) {
-        const data = await res.json();
-        setPlugOn(data.plug_on);
+        // Re-fetch to get effective state after automation
+        await fetchPlugStatus();
       }
     } catch (e) {
       console.error('Failed to toggle plug:', e);
@@ -480,6 +483,7 @@ export function BatteryPage({ isActive = true }: { isActive?: boolean }) {
                 <h3 className="text-sm font-medium text-gray-700">Wall Outlet</h3>
                 <p className={`text-xs ${plugOn ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
                   {plugOn ? 'Supplying power to battery' : 'Outlet is OFF - battery on its own'}
+                  {plugAutoControlled && <span className="text-orange-500 ml-1">(TOU auto)</span>}
                 </p>
               </div>
             </div>

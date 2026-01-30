@@ -150,6 +150,7 @@ class Heater:
             local_key=os.getenv("HEATER_LOCAL_KEY"),
             version=float(os.getenv("HEATER_VERSION", "3.3"))
         )
+        self._local_device.set_socketTimeout(3)  # 3s timeout for LAN ops
 
     def _init_cloud(self):
         """Initialize cloud API connection."""

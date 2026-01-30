@@ -505,10 +505,10 @@ def get_automation_targets() -> dict:
         if not plug_peak_override:
             auto_targets["plug_on"] = False
 
-    # SAFETY: Low battery + unplugged = turn off heater
+    # SAFETY: Low battery while running on battery = turn off heater
     battery_soc = get_channel_value(latest_channels, "battery_soc")
-    plug_on = user_targets.get("plug_on", True)
-    if battery_soc is not None and battery_soc <= 5 and not plug_on:
+    effective_plug_on = auto_targets.get("plug_on", user_targets.get("plug_on", True))
+    if battery_soc is not None and battery_soc <= 5 and not effective_plug_on:
         print(f"[SAFETY] Battery low ({battery_soc}%) and unplugged, disabling heater")
         auto_targets["heater_power"] = False
 
@@ -866,12 +866,13 @@ async def toggle_plug():
 
 @app.get("/api/plug")
 async def get_plug_status():
-    """Get current plug status."""
+    """Get current plug status (effective target after automation)."""
     plug_on = get_channel_value(latest_channels, "plug_on")
-    target_plug_on = user_targets.get("plug_on", True)
+    targets = calculate_targets()
     return {
         "on": plug_on,
-        "target_on": target_plug_on,
+        "target_on": targets.get("plug_on", True),
+        "auto_controlled": targets.get("plug_on") != user_targets.get("plug_on"),
     }
 
 
