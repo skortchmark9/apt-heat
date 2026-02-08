@@ -246,6 +246,7 @@ def get_today_stats() -> dict:
 
 def update_daily_stats_db(db: Session, date_str: str, power_watts: int, period: str, indoor_temp: int = None):
     """Update the daily_stats table with a new reading (for persistent history)."""
+    from rates import is_summer, TOU_SUMMER_PEAK_RATE, TOU_WINTER_PEAK_RATE, TOU_SUMMER_OFFPEAK_RATE, TOU_WINTER_OFFPEAK_RATE
     poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
 
     # Get or create the daily stats row
@@ -256,12 +257,23 @@ def update_daily_stats_db(db: Session, date_str: str, power_watts: int, period: 
 
     if power_watts and power_watts > 0:
         wh = int(power_watts * (poll_interval / 3600))
+        kwh = wh / 1000
         stats.total_wh = (stats.total_wh or 0) + wh
+
+        # Get rates for cost calculation
+        day = datetime.fromisoformat(date_str).date()
+        summer = is_summer(day)
+        peak_rate = TOU_SUMMER_PEAK_RATE if summer else TOU_WINTER_PEAK_RATE
+        offpeak_rate = TOU_SUMMER_OFFPEAK_RATE if summer else TOU_WINTER_OFFPEAK_RATE
 
         if period == "off_peak":
             stats.offpeak_wh = (stats.offpeak_wh or 0) + wh
+            cost_cents = int(kwh * offpeak_rate * 100)
+            stats.offpeak_cost_cents = (stats.offpeak_cost_cents or 0) + cost_cents
         else:
             stats.peak_wh = (stats.peak_wh or 0) + wh
+            cost_cents = int(kwh * peak_rate * 100)
+            stats.peak_cost_cents = (stats.peak_cost_cents or 0) + cost_cents
 
     stats.reading_count = (stats.reading_count or 0) + 1
 
@@ -1118,46 +1130,35 @@ async def get_stats_history(
     Get daily stats from today back to the first day with data.
 
     Returns list of daily stats and current savings streak.
+    Uses pre-aggregated DailyStats table for fast queries.
     """
     def query_history():
-        from collections import defaultdict
+        from rates import is_summer, TOU_SUMMER_PEAK_RATE, TOU_WINTER_PEAK_RATE, TOU_SUMMER_OFFPEAK_RATE, TOU_WINTER_OFFPEAK_RATE
 
         db = SessionLocal()
         try:
             today = datetime.now(LOCAL_TZ).date()
-            poll_interval = int(os.getenv("POLL_INTERVAL_SEC", "60"))
-
-            # Single query: get ALL readings for the date range
             start_date = today - timedelta(days=days - 1)
-            readings = db.query(HeaterReading).filter(
-                HeaterReading.timestamp >= datetime.combine(start_date, datetime.min.time())
-            ).order_by(HeaterReading.timestamp).all()
 
-            # If we got readings, adjust start_date to first actual reading
-            actual_days = days
-            if readings:
-                first_day = readings[0].timestamp.date()
-                days_since_first = (today - first_day).days + 1
-                actual_days = min(days, days_since_first)
-                start_date = today - timedelta(days=actual_days - 1)
+            # Query pre-aggregated daily stats (just ~30-365 rows instead of 500K+ readings)
+            stats_rows = db.query(DailyStats).filter(
+                DailyStats.date >= start_date.isoformat()
+            ).order_by(DailyStats.date.desc()).all()
 
-            # Group readings by date
-            readings_by_day = defaultdict(list)
-            for r in readings:
-                day = r.timestamp.date()
-                if day >= start_date:
-                    readings_by_day[day].append(r)
+            # Build a dict for fast lookup
+            stats_by_date = {s.date: s for s in stats_rows}
 
             daily_stats = []
 
-            # Compute stats for each day from today back
-            for days_ago in range(actual_days):
+            # Build stats for each day from today back
+            for days_ago in range(days):
                 day = today - timedelta(days=days_ago)
-                day_readings = readings_by_day.get(day, [])
+                date_str = day.isoformat()
+                row = stats_by_date.get(date_str)
 
-                if not day_readings:
+                if not row or row.reading_count == 0:
                     daily_stats.append({
-                        "date": day.isoformat(),
+                        "date": date_str,
                         "total_kwh": 0,
                         "peak_kwh": 0,
                         "offpeak_kwh": 0,
@@ -1167,15 +1168,46 @@ async def get_stats_history(
                     })
                     continue
 
-                result = calculate_savings_from_readings(day_readings, poll_interval)
-                result["date"] = day.isoformat()
+                # Convert Wh to kWh
+                total_kwh = (row.total_wh or 0) / 1000
+                peak_kwh = (row.peak_wh or 0) / 1000
+                offpeak_kwh = (row.offpeak_wh or 0) / 1000
+
+                # Get rates for this day
+                summer = is_summer(day)
+                peak_rate = TOU_SUMMER_PEAK_RATE if summer else TOU_WINTER_PEAK_RATE
+                offpeak_rate = TOU_SUMMER_OFFPEAK_RATE if summer else TOU_WINTER_OFFPEAK_RATE
+
+                # Use stored costs if available, otherwise calculate from kWh
+                if row.peak_cost_cents or row.offpeak_cost_cents:
+                    peak_cost = (row.peak_cost_cents or 0) / 100
+                    offpeak_cost = (row.offpeak_cost_cents or 0) / 100
+                else:
+                    # Fallback: calculate costs from kWh (for old data without costs)
+                    peak_cost = peak_kwh * peak_rate
+                    offpeak_cost = offpeak_kwh * offpeak_rate
+                actual_cost = peak_cost + offpeak_cost
+
+                # Calculate what it would have cost if all usage was at peak rate
+                would_have_cost = total_kwh * peak_rate
+
+                result = {
+                    "date": date_str,
+                    "total_kwh": round(total_kwh, 2),
+                    "peak_kwh": round(peak_kwh, 2),
+                    "offpeak_kwh": round(offpeak_kwh, 2),
+                    "savings": round(would_have_cost - actual_cost, 2),
+                    "would_have_cost": round(would_have_cost, 2),
+                    "actual_cost": round(actual_cost, 2),
+                }
 
                 # Add temp stats
-                temps = [r.current_temp_f for r in day_readings if r.current_temp_f is not None]
-                if temps:
-                    result["avg_temp"] = round(sum(temps) / len(temps))
-                    result["min_temp"] = min(temps)
-                    result["max_temp"] = max(temps)
+                if row.reading_count > 0 and row.temp_sum:
+                    result["avg_temp"] = round(row.temp_sum / row.reading_count)
+                if row.min_temp is not None:
+                    result["min_temp"] = row.min_temp
+                if row.max_temp is not None:
+                    result["max_temp"] = row.max_temp
 
                 daily_stats.append(result)
 
