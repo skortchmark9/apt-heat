@@ -116,6 +116,12 @@ offpeak_state = "heating"
 # Resets when entering off-peak
 plug_peak_override = False
 
+# Emergency charging: if battery drops critically low during peak, charge back up
+# to prevent EcoFlow from shutting down entirely
+emergency_charging = False
+EMERGENCY_SOC_LOW = 3   # Start emergency charge at this %
+EMERGENCY_SOC_HIGH = 6  # Stop emergency charge at this %
+
 # Cache of latest channel data from driver
 latest_channels = {}
 
@@ -517,12 +523,34 @@ def get_automation_targets() -> dict:
         if not plug_peak_override:
             auto_targets["plug_on"] = False
 
-    # SAFETY: Low battery while running on battery = turn off heater
+    # SAFETY: Emergency charging when battery critically low
+    global emergency_charging
     battery_soc = get_channel_value(latest_channels, "battery_soc")
-    effective_plug_on = auto_targets.get("plug_on", user_targets.get("plug_on", True))
-    if battery_soc is not None and battery_soc <= 5 and not effective_plug_on:
-        print(f"[SAFETY] Battery low ({battery_soc}%) and unplugged, disabling heater")
-        auto_targets["heater_power"] = False
+
+    if battery_soc is not None:
+        # Check if we need to enter or exit emergency charging
+        if emergency_charging:
+            if battery_soc >= EMERGENCY_SOC_HIGH:
+                print(f"[SAFETY] Emergency charge complete (SOC={battery_soc}%), resuming normal operation")
+                emergency_charging = False
+        else:
+            # Only trigger emergency charging during peak when plug is off
+            effective_plug_on = auto_targets.get("plug_on", user_targets.get("plug_on", True))
+            if battery_soc <= EMERGENCY_SOC_LOW and not effective_plug_on:
+                print(f"[SAFETY] Battery critical ({battery_soc}%), starting emergency charge to {EMERGENCY_SOC_HIGH}%")
+                emergency_charging = True
+
+        # Apply emergency charging overrides
+        if emergency_charging:
+            auto_targets["plug_on"] = True
+            auto_targets["battery_charge_power"] = 1500
+            auto_targets["emergency_charging"] = True
+
+        # Low battery + unplugged (and not emergency charging) = turn off heater
+        effective_plug_on = auto_targets.get("plug_on", user_targets.get("plug_on", True))
+        if battery_soc <= 5 and not effective_plug_on:
+            print(f"[SAFETY] Battery low ({battery_soc}%) and unplugged, disabling heater")
+            auto_targets["heater_power"] = False
 
     return auto_targets
 
